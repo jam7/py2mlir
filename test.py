@@ -1,7 +1,7 @@
-def muda():
+#!/usr/bin/env python
 
-    a = 1
-    b = 2
+from VecTypes import *
 
-    c = a + b
+def muda(v = vec):
 
+    a = vec([1.0, 2.0, 3.0, 4.0])

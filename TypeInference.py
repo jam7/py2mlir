@@ -26,6 +26,11 @@ class TypeInference(object):
 
         self.symbolTable = symTable
 
+    def isTypeName(self, name):
+        if self.typeDic.has_key(name):
+            return self.typeDic[name]
+
+        return None
 
     def inferType(self, node):
         """
@@ -69,6 +74,11 @@ class TypeInference(object):
 
         return self.inferType(node.expr)
 
+    def inferCallFunc(self, node):
+
+        print "; => CalFunc:", node
+        return self.inferType(node.node)
+
 
     def inferAdd(self, node):
     
@@ -103,8 +113,11 @@ class TypeInference(object):
 
         name = node.name
 
+        print self.typeDic
+
         # Firstly, name of type?
         if self.typeDic.has_key(name):
+            print "; => found type for ", name
             return self.typeDic[name]
 
         # Next, lookup symbol from the symbol table.
@@ -112,6 +125,7 @@ class TypeInference(object):
         if sym is not None:
             return sym.type
 
+        print "not found. name=", name
         return None
 
 
