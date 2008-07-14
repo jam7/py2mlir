@@ -3,6 +3,13 @@ import re
 from SymbolTable import *
 from VecTypes import *
 
+class void(object):
+    """
+    Represents void type
+    """
+    def __init__(self):
+        pass
+
 
 class TypeInference(object):
     """
@@ -18,8 +25,9 @@ class TypeInference(object):
 
         # Intrinsic types
         self.typeDic = {
-              'int' : int
+              'int'   : int
             , 'float' : float
+            , 'void'  : void
             }
 
         self.typeDic.update(GetVecTypeDic())    # register vector type
@@ -86,8 +94,8 @@ class TypeInference(object):
         right = self.inferType(node.right) 
 
         if left != right:
-            print "[type inference] Type mismatch found at line %d: left = %s, right = %s" % (node.lineno, left, right)
-            print "                 node = %s" % (node)
+            print "; [type inference] Type mismatch found at line %d: left = %s, right = %s" % (node.lineno, left, right)
+            print ";                 node = %s" % (node)
             return None
 
         return left
@@ -113,8 +121,6 @@ class TypeInference(object):
 
         name = node.name
 
-        print self.typeDic
-
         # Firstly, name of type?
         if self.typeDic.has_key(name):
             print "; => found type for ", name
@@ -125,13 +131,16 @@ class TypeInference(object):
         if sym is not None:
             return sym.type
 
-        print "not found. name=", name
+        print "; => not found. name=", name
         return None
 
 
     def inferConst(self, node):
 
         value = node.value
+
+        if value == None:
+            return void
 
         if isinstance(value, type(1.0)):
             return float

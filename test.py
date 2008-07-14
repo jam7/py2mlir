@@ -2,6 +2,7 @@
 
 from VecTypes import *
 
-def muda(v = vec):
+def add_func(a = vec, b = vec):
+    
+    return a + b
 
-    a = vec([1.0, 2.0, 3.0, 4.0])

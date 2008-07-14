@@ -18,6 +18,7 @@ class Symbol(object):
 
         assert type is not None
 
+        print "; [SymbolTable] add %s(ty= %s)" % (name, type)
         self.name  = name
         self.type  = type
 
