@@ -56,6 +56,7 @@ class vec(object):
 
         return tmp
 
+
     def __sub__(self, b):
 
         if not isinstance(b, vec):
@@ -64,6 +65,11 @@ class vec(object):
         tmp = vec([x - y for x, y in zip(self.value, b.value)])
 
         return tmp
+
+
+    def swizzle(self, arg):
+        pass
+
 
 def GetVecTypeDic():
 
