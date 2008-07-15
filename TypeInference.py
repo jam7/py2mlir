@@ -1,7 +1,7 @@
 import re
 
 from SymbolTable import *
-from VecTypes import *
+from MUDA import *
 
 class void(object):
     """
@@ -25,14 +25,24 @@ class TypeInference(object):
 
         # Intrinsic types
         self.typeDic = {
-              'int'   : int
-            , 'float' : float
-            , 'void'  : void
+              'int'    : int
+            , 'float'  : float
+            , 'void'   : void
+            , 'string' : str
             }
 
-        self.typeDic.update(GetVecTypeDic())    # register vector type
+        self.typeDic.update(GetMUDATypeDic())    # register MUDA type
 
         self.symbolTable = symTable
+
+
+    def isFloatType(self, ty):
+        if (ty == float or
+            ty == vec     ):
+            return True
+
+        return False
+
 
     def isTypeName(self, name):
         if self.typeDic.has_key(name):
@@ -101,6 +111,44 @@ class TypeInference(object):
         return left
 
 
+    def inferSub(self, node):
+    
+        left  = self.inferType(node.left)
+        right = self.inferType(node.right) 
+
+        if left != right:
+            print "; [type inference] Type mismatch found at line %d: left = %s, right = %s" % (node.lineno, left, right)
+            print ";                 node = %s" % (node)
+            return None
+
+        return left
+
+    def inferMul(self, node):
+    
+        left  = self.inferType(node.left)
+        right = self.inferType(node.right) 
+
+        if left != right:
+            print "; [type inference] Type mismatch found at line %d: left = %s, right = %s" % (node.lineno, left, right)
+            print ";                 node = %s" % (node)
+            return None
+
+        return left
+
+
+    def inferDiv(self, node):
+    
+        left  = self.inferType(node.left)
+        right = self.inferType(node.right) 
+
+        if left != right:
+            print "; [type inference] Type mismatch found at line %d: left = %s, right = %s" % (node.lineno, left, right)
+            print ";                 node = %s" % (node)
+            return None
+
+        return left
+
+
     #
     # -- Leaf
     #
@@ -147,6 +195,9 @@ class TypeInference(object):
 
         elif isinstance(value, type(1)):
             return int
+
+        elif isinstance(value, type('muda')):
+            return str
 
         else:
             raise Exception("Unknown type of value:", value)

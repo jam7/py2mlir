@@ -6,7 +6,8 @@ import compiler
 
 import llvm.core
 
-from VecTypes import *
+# from VecTypes import *
+from MUDA import *
 from TypeInference import *
 from SymbolTable import *
 
@@ -31,6 +32,7 @@ def toLLVMTy(ty):
         , int   : llIntType
         , vec   : llFVec4Type
         , void  : llVoidType
+        # str   : TODO
         }
 
     if d.has_key(ty):
@@ -57,6 +59,22 @@ class CodeGenLLVM:
 
         self.currFuncRetType  = None
         self.prevFuncRetNode  = None    # for reporiting err
+
+
+    def visitModule(self, node):
+
+        self.visit(node.node)
+
+        print self.module   # Output LLVM code to stdout.
+
+
+    def visitPrint(self, node):
+        return None # Discard
+
+
+    def visitPrintnl(self, node):
+        return None # Discard
+
 
     def visitReturn(self, node):
 
@@ -176,9 +194,12 @@ class CodeGenLLVM:
             symbolTable.append(Symbol(name, ty, llstorage=allocaInst))
 
         self.visit(node.code)
-        symbolTable.popScope()
 
-        print self.module   # Output LLVM code to stdout.
+        if self.currFuncRetType is None:
+            # Add ret void.
+            self.builder.ret_void()
+
+        symbolTable.popScope()
 
 
     def visitStmt(self, node):
@@ -257,6 +278,66 @@ class CodeGenLLVM:
 
         return addInst
 
+    def visitSub(self, node):
+
+        lTy = typer.inferType(node.left)
+        rTy = typer.inferType(node.right)
+
+        if rTy != lTy:
+            raise Exception("ERR: TypeMismatch: lTy = %s, rTy = %s for %s, line %d" % (lTy, rTy, node, node.lineno))
+
+        lLLInst = self.visit(node.left)
+        rLLInst = self.visit(node.right)
+        
+        tmpSym = symbolTable.genUniqueSymbol(lTy)
+
+        subInst = self.builder.sub(lLLInst, rLLInst, tmpSym.name)
+        print "; [SubOp] inst = ", subInst
+
+        return subInst
+
+
+    def visitMul(self, node):
+
+        lTy = typer.inferType(node.left)
+        rTy = typer.inferType(node.right)
+
+        if rTy != lTy:
+            raise Exception("ERR: TypeMismatch: lTy = %s, rTy = %s for %s, line %d" % (lTy, rTy, node, node.lineno))
+
+        lLLInst = self.visit(node.left)
+        rLLInst = self.visit(node.right)
+        
+        tmpSym = symbolTable.genUniqueSymbol(lTy)
+
+        mulInst = self.builder.mul(lLLInst, rLLInst, tmpSym.name)
+        print "; [MulOp] inst = ", mulInst
+
+        return mulInst
+
+
+    def visitDiv(self, node):
+
+        lTy = typer.inferType(node.left)
+        rTy = typer.inferType(node.right)
+
+        if rTy != lTy:
+            raise Exception("ERR: TypeMismatch: lTy = %s, rTy = %s for %s, line %d" % (lTy, rTy, node, node.lineno))
+
+        lLLInst = self.visit(node.left)
+        rLLInst = self.visit(node.right)
+        
+        tmpSym = symbolTable.genUniqueSymbol(lTy)
+
+        if typer.isFloatType(lTy):
+            divInst = self.builder.fdiv(lLLInst, rLLInst, tmpSym.name)
+        else:
+            raise Exception("TODO: div for type: ", lTy)
+
+        print "; [DIvOp] inst = ", divInst
+
+        return divInst
+
 
     def handleInitializeTypeCall(self, ty, args):
 
@@ -327,6 +408,15 @@ class CodeGenLLVM:
 
         print "; [Leaf] inst = ", loadInst
         return loadInst
+
+
+    def visitDiscard(self, node):
+
+        self.visit(node.expr)
+
+        #
+        # return None
+        #
 
 
     def visitConst(self, node):
