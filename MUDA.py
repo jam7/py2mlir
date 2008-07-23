@@ -40,6 +40,7 @@ class vec(object):
 
         self.value = v
 
+        # self.addSwizzleMethod()
 
     def __str__(self):
 
@@ -66,9 +67,64 @@ class vec(object):
         return tmp
 
 
-    def swizzle(self, arg):
-        pass
+    def __getattr__(self, name):
 
+        #
+        # Handle swizzle
+        #
+        d = { 'x' : 0, 'y' : 1, 'z' : 2, 'w' : 3 }
+
+        assert len(name) < 5, "Invalid attribute: %s" % name
+
+        if len(name) == 1:
+            return self.value[d[name]]
+
+        v = vec([0.0, 0.0, 0.0, 0.0])
+
+        for (i, s) in enumerate(name):
+            if not d.has_key(s):
+                raise Exception("Invalid letter for swizzle:", name)
+            
+            v.value[i] = self.value[d[s]]
+
+        for i in range(len(name), 4):
+            v.value[i] = self.value[d[name[-1]]] 
+
+        return v
+
+
+"""
+TODO...
+
+class mstructdef(object):
+
+    def __init__(self, structElements):
+
+        assert isinstance(structElements, dict)
+
+        print structElements
+    
+
+class mstruct(object):
+
+    def __init__(self, structDef):
+
+        assert isinstance(structDef, mstructdef)
+        
+
+class marray(object):
+
+    def __init__(self, ty, sz):
+
+        self.type   = ty
+        self.size   = sz     
+    
+        self.values = []
+
+    def __str__(self):
+
+        return str(self.values)
+"""
 
 def GetMUDATypeDic():
 
@@ -81,3 +137,31 @@ def GetMUDATypeDic():
 def printf(msg):
 
     print msg
+
+
+def _testVec():
+
+    a = vec([1.0, 2.0, 3.0, 4.0])
+    
+    print a
+
+    print a.x
+    print a.y
+    print a.z
+    print a.w
+
+    print a.xy
+    print a.yz
+
+    b = a.x
+
+
+def _test():
+    import doctest
+
+    _testVec()
+
+    doctest.testmod()
+
+if __name__ == '__main__':
+    _test()

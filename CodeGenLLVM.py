@@ -242,6 +242,10 @@ class CodeGenLLVM:
 
                 lTy = rTy
 
+            else:
+                # symbol is already defined.
+                lTy = sym.type
+
 
 
         if rTy != lTy:
@@ -259,6 +263,44 @@ class CodeGenLLVM:
 
         # No return
 
+
+    def visitUnarySub(self, node):
+
+        ty       = typer.inferType(node.expr)
+        e        = self.visit(node.expr)
+        zeroInst = llvm.core.Constant.null(toLLVMTy(ty))
+        tmpSym   = symbolTable.genUniqueSymbol(ty)
+
+        subInst = self.builder.sub(zeroInst, e, tmpSym.name)
+
+        return subInst
+
+    def visitGetattr(self, node):
+
+        d = { 'x' : llvm.core.Constant.int(llIntType, 0)
+            , 'y' : llvm.core.Constant.int(llIntType, 1)
+            , 'z' : llvm.core.Constant.int(llIntType, 2)
+            , 'w' : llvm.core.Constant.int(llIntType, 3)
+            }
+
+
+        ty = typer.inferType(node)
+        print "getattr: expr", node.expr
+        print "getattr: attrname", node.attrname
+        print "getattr: ty", ty
+
+        rLLInst  = self.visit(node.expr)
+        tmpSym   = symbolTable.genUniqueSymbol(ty)
+
+        if len(node.attrname) == 1:
+            # emit extract element
+            s = node.attrname[0]
+
+            inst = self.builder.extract_element(rLLInst, d[s], tmpSym.name)
+
+        return inst
+
+        
 
     def visitAdd(self, node):
 
@@ -419,10 +461,10 @@ class CodeGenLLVM:
         #
 
 
-    def visitConst(self, node):
+    def mkLLConstInst(self, ty, value):
 
-        ty = typer.inferType(node)
-        print "; [Typer] %s => %s" % (str(node), str(ty))
+        # ty = typer.inferType(node)
+        # print "; [Typer] %s => %s" % (str(node), str(ty))
 
         llTy   = toLLVMTy(ty)
         bufSym = symbolTable.genUniqueSymbol(ty)
@@ -436,13 +478,13 @@ class CodeGenLLVM:
 
         llConst   = None
         if llTy   == llIntType:
-            llConst = llvm.core.Constant.int(llIntType, node.value)
+            llConst = llvm.core.Constant.int(llIntType, value)
     
         elif llTy == llFloatType:
-            llConst = llvm.core.Constant.real(llFloatType, node.value)
+            llConst = llvm.core.Constant.real(llFloatType, value)
 
         elif llTy == llFVec4Type:
-            print ";", node.value
+            print ";", value
             raise Exception("muda")
     
         storeInst = self.builder.store(llConst, allocInst)
@@ -451,6 +493,12 @@ class CodeGenLLVM:
         print ";", loadInst
 
         return loadInst
+
+    def visitConst(self, node):
+        
+        ty = typer.inferType(node)
+
+        return self.mkLLConstInst(ty, node.value)
 
 
 def _test():

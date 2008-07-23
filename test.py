@@ -1,8 +1,11 @@
 #!/usr/bin/env python
 
-from VecTypes import *
+from MUDA import *
 
-def add_func(a = vec, b = vec):
+def test():
     
-    return a + b
+    a = vec([0.0, 1.0, 2.0, 3.0])
+    b = a + a
+
+    return b
 

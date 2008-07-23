@@ -66,7 +66,7 @@ class TypeInference(object):
         op_name = op.group(1)
 
         #
-        # call method whose name is "infer + ${op_name}"
+        # call the method whose name is "infer + ${op_name}"
         #
 
         method_name = "infer%s" % op_name
@@ -87,6 +87,41 @@ class TypeInference(object):
 
         return self.inferType(node.nodes[0])
 
+    def checkSwizzleLetter(self, name):
+
+        assert len(name) >= 1 and len(name) < 5
+
+        for s in name:
+            if not s in ('x', 'y', 'z', 'w'):
+                raise Exception("Not a swizzle letter:", name) 
+
+        return True
+
+    def inferGetattr(self, node):
+        """
+        a.x
+        a.xyz
+        a.xyzw
+        
+        node.expr must be a vector type.
+        """
+
+        ty = self.inferType(node.expr)
+        assert ty == vec, "swizzle pattern must be specified for vector variable, but variable has type %s: %s" % (ty, node)
+
+        swizzleName = node.attrname
+        self.checkSwizzleLetter(swizzleName)
+
+        if len(swizzleName) is 1:
+            # scalar
+            if ty == vec:
+                return float
+            else:
+                raise Exception("Unknown type:", ty)
+
+        else:
+            # vector
+            return ty
 
     def inferDiscard(self, node):
 
@@ -97,6 +132,10 @@ class TypeInference(object):
         print "; => CalFunc:", node
         return self.inferType(node.node)
 
+
+    def inferUnarySub(self, node):
+
+        return self.inferType(node.expr)
 
     def inferAdd(self, node):
     
