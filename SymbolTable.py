@@ -2,25 +2,26 @@ class Symbol(object):
     """
     Structure for symbol with type information.
 
-    >>> s = Symbol("a", float)
+    >>> s = Symbol("a", float, "variable")
     >>> print s
     a(<type 'float'>)
-    >>> s = Symbol("b", float, cls = "bora")
+    >>> s = Symbol("b", float, "variable", cls = "bora")
     >>> print s
     b(<type 'float'>) attrs: cls = bora
     >>> import VecTypes
-    >>> s = Symbol("c", VecTypes.vec)
+    >>> s = Symbol("c", VecTypes.vec, "variable")
     >>> print s
     c(<class 'VecTypes.vec'>)
     """
 
-    def __init__(self, name, type, **kwargs):
+    def __init__(self, name, type, kind, **kwargs):
 
         assert type is not None
 
-        print "; [SymbolTable] add %s(ty= %s)" % (name, type)
+        print "; [SymbolTable] add %s(ty= %s, knd = %s)" % (name, type, kind)
         self.name  = name
         self.type  = type
+        self.kind  = kind
 
         self.attrs = []
 
@@ -125,7 +126,7 @@ class SymbolTable:
 
             if self.find(name) == None:
 
-                newSym = Symbol(name, type)
+                newSym = Symbol(name, type, "variable")
                 self.append(newSym)
 
                 return newSym

@@ -1,4 +1,5 @@
 import re
+import compiler
 
 from SymbolTable import *
 from MUDA import *
@@ -23,7 +24,7 @@ class TypeInference(object):
 
         assert isinstance(symTable, SymbolTable)
 
-        # Intrinsic types
+        # First class types
         self.typeDic = {
               'int'    : int
             , 'float'  : float
@@ -35,6 +36,16 @@ class TypeInference(object):
 
         self.symbolTable = symTable
 
+        # Register intrinsic functions from MUDA module
+        self.intrinsics = GetIntrinsicFunctions()
+
+        for (k, v) in self.intrinsics.items():
+            retTy  = v[0]
+            argTys = v[1]
+            print "; add fun: %s %s(%s)" % (retTy, k, argTys)
+            sym = Symbol(k, retTy, "function", argtypes = argTys)
+            self.symbolTable.append(sym)
+
 
     def isFloatType(self, ty):
         if (ty == float or
@@ -44,9 +55,15 @@ class TypeInference(object):
         return False
 
 
-    def isTypeName(self, name):
+    def isNameOfFirstClassType(self, name):
         if self.typeDic.has_key(name):
             return self.typeDic[name]
+
+        return None
+
+    def getIntrinsicFunctionFromName(self, name):
+        if self.intrinsics.has_key(name):
+            return self.intrinsics[name]
 
         return None
 
@@ -129,7 +146,17 @@ class TypeInference(object):
 
     def inferCallFunc(self, node):
 
+        assert isinstance(node.node, compiler.ast.Name)
+
         print "; => CalFunc:", node
+
+        # Intrinsic function?
+        f = self.getIntrinsicFunctionFromName(node.node.name)
+        if f is not None:
+            print "; => Intrinsic:", f
+            return f[0]
+
+        
         return self.inferType(node.node)
 
 

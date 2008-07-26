@@ -161,7 +161,7 @@ class CodeGenLLVM:
             bufSym = symbolTable.genUniqueSymbol(ty)
             allocaInst = self.builder.alloca(toLLVMTy(ty), bufSym.name)
             storeInst  = self.builder.store(func.args[i], allocaInst)
-            symbolTable.append(Symbol(name, ty, llstorage=allocaInst))
+            symbolTable.append(Symbol(name, ty, "variable", llstorage=allocaInst))
 
         self.visit(node.code)
         symbolTable.popScope()
@@ -191,7 +191,7 @@ class CodeGenLLVM:
             bufSym = symbolTable.genUniqueSymbol(ty)
             allocaInst = self.builder.alloca(toLLVMTy(ty), bufSym.name)
             storeInst  = self.builder.store(func.args[i], allocaInst)
-            symbolTable.append(Symbol(name, ty, llstorage=allocaInst))
+            symbolTable.append(Symbol(name, ty, "variable", llstorage=allocaInst))
 
         self.visit(node.code)
 
@@ -236,7 +236,7 @@ class CodeGenLLVM:
                 llTy = toLLVMTy(rTy)
                 llStorage = self.builder.alloca(llTy, lhsNode.name) 
 
-                sym = Symbol(lhsNode.name, rTy, llstorage = llStorage)
+                sym = Symbol(lhsNode.name, rTy, "variable", llstorage = llStorage)
                 symbolTable.append(sym)
                 print "; [Sym] New symbol added: ", sym
 
@@ -420,17 +420,22 @@ class CodeGenLLVM:
 
         print "; callfuncafter", args
 
-        ty = typer.isTypeName(node.node.name)
+        ty = typer.isNameOfFirstClassType(node.node.name)
         print "; callfuncafter: ty = ",ty
         if ty:
             # int, float, vec, ...
             return self.handleInitializeTypeCall( ty, args )
                 
 
-        ty = typer.inferType(node.node)
+        ty      = typer.inferType(node.node)
+        funcSig = symbolTable.lookup(node.node.name)
 
-        raise Exception("TODO...")
-        
+        # emit call 
+
+        print funcSig
+        raise Exception("TODO:")
+
+
     def visitList(self, node):
 
         return [self.visit(a) for a in node.nodes]
@@ -500,7 +505,11 @@ class CodeGenLLVM:
 
         return self.mkLLConstInst(ty, node.value)
 
-
+    #
+    # Vector math
+    #
+    def emitVAbs(self, llargs):
+        raise Exception("TODO")
 def _test():
     import doctest
     doctest.testmod()

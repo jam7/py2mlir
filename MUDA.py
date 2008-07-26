@@ -1,3 +1,4 @@
+import math
 
 class vec(object):
     """
@@ -134,6 +135,45 @@ def GetMUDATypeDic():
 
     return d
 
+#
+# Vector math function 
+#
+def vabs(a):
+    assert isinstance(a, vec)
+
+    v0 = math.fabs(a.value[0])
+    v1 = math.fabs(a.value[1])
+    v2 = math.fabs(a.value[2])
+    v3 = math.fabs(a.value[3])
+    
+    r = vec([v0, v1, v2, v3])
+
+    return r
+
+def vexp(a):
+    assert isinstance(a, vec)
+
+    v0 = math.exp(a.value[0])
+    v1 = math.exp(a.value[1])
+    v2 = math.exp(a.value[2])
+    v3 = math.exp(a.value[3])
+    
+    r = vec([v0, v1, v2, v3])
+
+    return r
+
+def vlog(a):
+    assert isinstance(a, vec)
+
+    v0 = math.log(a.value[0])
+    v1 = math.log(a.value[1])
+    v2 = math.log(a.value[2])
+    v3 = math.log(a.value[3])
+    
+    r = vec([v0, v1, v2, v3])
+
+    return r
+
 def printf(msg):
 
     print msg
@@ -154,6 +194,20 @@ def _testVec():
     print a.yz
 
     b = a.x
+
+#
+# Intrinsic math functions
+#
+intrinsics = {
+    # Name    : ( ret type , arg types
+      'vabs'  : ( vec    , [ vec ] )
+    , 'vexp'  : ( vec    , [ vec ] )
+    , 'vlog'  : ( vec    , [ vec ] )
+    , 'vsqrt' : ( vec    , [ vec ] )
+    }
+
+def GetIntrinsicFunctions():
+    return intrinsics
 
 
 def _test():
