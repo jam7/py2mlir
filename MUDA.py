@@ -1,4 +1,17 @@
+import struct
 import math
+
+def f2b(f):
+    """
+    float to 32bit int
+    """
+    return struct.unpack('I', struct.pack('f', f))[0]
+
+def b2f(b):
+    """
+    32bit int to float
+    """
+    return struct.unpack('f', struct.pack('I', b))[0]
 
 class vec(object):
     """
@@ -67,6 +80,84 @@ class vec(object):
 
         return tmp
 
+    def __mul__(self, b):
+
+        if not isinstance(b, vec):
+            raise Exception("RHS is not a type of vec")
+
+        tmp = vec([x * y for x, y in zip(self.value, b.value)])
+
+        return tmp
+
+    def __div__(self, b):
+
+        if not isinstance(b, vec):
+            raise Exception("RHS is not a type of vec")
+
+        tmp = vec([x / y for x, y in zip(self.value, b.value)])
+
+        return tmp
+
+    def __gt__(self, b):
+
+        if not isinstance(b, vec):
+            raise Exception("RHS is not a type of vec")
+
+        r = [0.0, 0.0, 0.0, 0.0]
+
+        for i in range(4):
+            if self.value[i] > b.value[i]:
+                r[i] = b2f(0xffffffff)
+            else:                
+                r[i] = b2f(0x00000000)
+
+        return vec(r)
+
+    def __ge__(self, b):
+
+        if not isinstance(b, vec):
+            raise Exception("RHS is not a type of vec")
+
+        r = [0.0, 0.0, 0.0, 0.0]
+
+        for i in range(4):
+            if self.value[i] >= b.value[i]:
+                r[i] = b2f(0xffffffff)
+            else:                
+                r[i] = b2f(0x00000000)
+
+        return vec(r)
+
+    def __lt__(self, b):
+
+        if not isinstance(b, vec):
+            raise Exception("RHS is not a type of vec")
+
+        r = [0.0, 0.0, 0.0, 0.0]
+
+        for i in range(4):
+            if self.value[i] < b.value[i]:
+                r[i] = b2f(0xffffffff)
+            else:                
+                r[i] = b2f(0x00000000)
+
+        return vec(r)
+
+    def __le__(self, b):
+
+        if not isinstance(b, vec):
+            raise Exception("RHS is not a type of vec")
+
+        r = [0.0, 0.0, 0.0, 0.0]
+
+        for i in range(4):
+            if self.value[i] <= b.value[i]:
+                r[i] = b2f(0xffffffff)
+            else:                
+                r[i] = b2f(0x00000000)
+
+        return vec(r)
+
 
     def __getattr__(self, name):
 
@@ -134,6 +225,24 @@ def GetMUDATypeDic():
         }
 
     return d
+
+def vsel(a, b, m):
+    assert isinstance(a, vec)
+    assert isinstance(b, vec)
+    assert isinstance(m, vec)
+
+    r = [0.0, 0.0, 0.0, 0.0]
+
+    for i in range(4):
+
+        u = f2b(m.value[i])
+        if u == 0xffffffff:
+            r[i] = b.value[i]            
+        else:   # 0x00000000
+            r[i] = a.value[i]            
+                    
+    return vec(r)
+    
 
 #
 # Vector math function 

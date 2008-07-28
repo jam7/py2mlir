@@ -60,8 +60,13 @@ class CodeGenLLVM:
         self.currFuncRetType  = None
         self.prevFuncRetNode  = None    # for reporiting err
 
+        self.externals        = {}
+
 
     def visitModule(self, node):
+
+        # emitExternalSymbols() should be called before self.visit(node.node)
+        self.emitExternalSymbols()
 
         self.visit(node.node)
 
@@ -394,8 +399,13 @@ class CodeGenLLVM:
 
             vf = llvm.core.Constant.vector([llvm.core.Constant.real(llFloatType, "0.0")] * 4)
 
-            # args = [List([float, float, float, float])]
-            elems = args[0]
+            # args =  [List([float, float, float, float])]
+            #      or [List(float)]
+            
+            if isinstance(args[0], list):
+                elems = args[0]
+            else:
+                elems = [args[0], args[0], args[0], args[0]]
 
             s0 = symbolTable.genUniqueSymbol(llFVec4Type)
             s1 = symbolTable.genUniqueSymbol(llFVec4Type)
@@ -422,10 +432,22 @@ class CodeGenLLVM:
 
         ty = typer.isNameOfFirstClassType(node.node.name)
         print "; callfuncafter: ty = ",ty
+
+        #
+        # value initialier? 
+        #
         if ty:
             # int, float, vec, ...
-            return self.handleInitializeTypeCall( ty, args )
+            return self.handleInitializeTypeCall(ty, args)
                 
+        
+        #
+        # vector math function?
+        # 
+        ret = self.isVectorMathFunction(node.node.name)
+        if ret is not False:
+            return self.emitVMath(ret[1], args)
+            
 
         ty      = typer.inferType(node.node)
         funcSig = symbolTable.lookup(node.node.name)
@@ -506,10 +528,99 @@ class CodeGenLLVM:
         return self.mkLLConstInst(ty, node.value)
 
     #
+    #
+    #
+    def emitExternalSymbols(self):
+
+        d = {
+              'fabsf' : ( llFloatType, [llFloatType] )
+            , 'expf'  : ( llFloatType, [llFloatType] )
+            , 'logf'  : ( llFloatType, [llFloatType] )
+            }
+
+        for k, v in d.items():
+            fty = llvm.core.Type.function(v[0], v[1])
+            f   = llvm.core.Function.new(self.module, fty, k)
+
+            self.externals[k] = f
+
+    def getExternalSymbolInstruction(self, name):
+
+        if self.externals.has_key(name):
+            return self.externals[name]
+        else:
+            raise Exception("Unknown external symbol:", name, self.externals)
+
+    def isExternalSymbol(self, name):
+        if self.externals.has_key(name):
+            return True
+        else:
+            return False
+
+    #
     # Vector math
     #
+    def isVectorMathFunction(self, name):
+        d = {
+              'vabs' : 'fabsf'
+            , 'vexp' : 'expf'
+            , 'vlog' : 'logf'
+            }
+
+        if d.has_key(name):
+            return (True, d[name])
+        else:
+            False
+
+    def emitVMath(self, fname, llargs):
+        """
+        TODO: Use MUDA's optimized vector math function for LLVM.
+        """
+
+        i0    = llvm.core.Constant.int(llIntType, 0)
+        i1    = llvm.core.Constant.int(llIntType, 1)
+        i2    = llvm.core.Constant.int(llIntType, 2)
+        i3    = llvm.core.Constant.int(llIntType, 3)
+        vzero = llvm.core.Constant.vector([llvm.core.Constant.real(llFloatType, "0.0")] * 4)
+
+        func = self.getExternalSymbolInstruction(fname)
+
+        # Decompose vector element
+        tmp0  = symbolTable.genUniqueSymbol(float)
+        tmp1  = symbolTable.genUniqueSymbol(float)
+        tmp2  = symbolTable.genUniqueSymbol(float)
+        tmp3  = symbolTable.genUniqueSymbol(float)
+        e0    = self.builder.extract_element(llargs[0], i0, tmp0.name) 
+        e1    = self.builder.extract_element(llargs[0], i1, tmp1.name) 
+        e2    = self.builder.extract_element(llargs[0], i2, tmp2.name) 
+        e3    = self.builder.extract_element(llargs[0], i3, tmp3.name) 
+
+        ftmp0 = symbolTable.genUniqueSymbol(float)
+        ftmp1 = symbolTable.genUniqueSymbol(float)
+        ftmp2 = symbolTable.genUniqueSymbol(float)
+        ftmp3 = symbolTable.genUniqueSymbol(float)
+        f0 = self.builder.call(func, [e0], ftmp0.name)
+        f1 = self.builder.call(func, [e1], ftmp1.name)
+        f2 = self.builder.call(func, [e2], ftmp2.name)
+        f3 = self.builder.call(func, [e3], ftmp3.name)
+
+        # pack
+        s0 = symbolTable.genUniqueSymbol(llFVec4Type)
+        s1 = symbolTable.genUniqueSymbol(llFVec4Type)
+        s2 = symbolTable.genUniqueSymbol(llFVec4Type)
+        s3 = symbolTable.genUniqueSymbol(llFVec4Type)
+        r0 = self.builder.insert_element(vzero, f0, i0, s0.name)
+        r1 = self.builder.insert_element(r0   , f1, i1, s1.name)
+        r2 = self.builder.insert_element(r1   , f2, i2, s2.name)
+        r3 = self.builder.insert_element(r2   , f3, i3, s3.name)
+
+        return r3
+
     def emitVAbs(self, llargs):
-        raise Exception("TODO")
+
+        return self.emitVMath("fabsf", llargs)
+        
+
 def _test():
     import doctest
     doctest.testmod()
