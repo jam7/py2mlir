@@ -4,8 +4,7 @@ from MUDA import *
 
 def test():
     
-    a = vec([0.0, 1.0, 2.0, 3.0])
-    # b = vabs(a)
+    a = 1.3
 
     return a
 

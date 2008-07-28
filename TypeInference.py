@@ -42,7 +42,6 @@ class TypeInference(object):
         for (k, v) in self.intrinsics.items():
             retTy  = v[0]
             argTys = v[1]
-            print "; add fun: %s %s(%s)" % (retTy, k, argTys)
             sym = Symbol(k, retTy, "function", argtypes = argTys)
             self.symbolTable.append(sym)
 
