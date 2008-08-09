@@ -12,8 +12,8 @@ from TypeInference import *
 from SymbolTable import *
 
 
-symbolTable = SymbolTable() 
-typer       = TypeInference(symbolTable)
+symbolTable   = SymbolTable() 
+typer         = TypeInference(symbolTable)
 
 llVoidType    = llvm.core.Type.void()
 llIntType     = llvm.core.Type.int()
@@ -71,6 +71,7 @@ class CodeGenLLVM:
         self.visit(node.node)
 
         print self.module   # Output LLVM code to stdout.
+        # print self.emitCommonHeader()
 
 
     def visitPrint(self, node):
@@ -116,7 +117,7 @@ class CodeGenLLVM:
 
             assert isinstance(tyname, compiler.ast.Name)
 
-            ty = typer.isTypeName(tyname.name)
+            ty = typer.isNameOfFirstClassType(tyname.name)
             if ty is None:
                 raise Exception("Unknown name of type:", tyname.name)
 
@@ -159,7 +160,7 @@ class CodeGenLLVM:
         # And emit function prologue.
         for i, (name, tyname) in enumerate(zip(node.argnames, node.defaults)):
 
-            ty = typer.isTypeName(tyname.name)
+            ty = typer.isNameOfFirstClassType(tyname.name)
 
             # %name.buf = alloca ty
             # store val, %name.buf
@@ -189,7 +190,7 @@ class CodeGenLLVM:
         # And emit function prologue.
         for i, (name, tyname) in enumerate(zip(node.argnames, node.defaults)):
 
-            ty = typer.isTypeName(tyname.name)
+            ty = typer.isNameOfFirstClassType(tyname.name)
 
             # %name.buf = alloca ty
             # store val, %name.buf
@@ -268,6 +269,40 @@ class CodeGenLLVM:
 
         # No return
 
+    def visitIf(self, node):
+
+        print node.tests
+        print node.else_
+
+        raise Exception("muda")
+
+    def visitCompare(self, node):
+
+        print node.expr
+        print node.ops[0]
+
+        lTy = typer.inferType(node.expr)
+        rTy = typer.inferType(node.ops[0][1])
+
+        if rTy != lTy:
+            raise Exception("ERR: TypeMismatch: lTy = %s, rTy = %s for %s, line %d" % (lTy, rTy, node, node.lineno))
+
+        lLLInst = self.visit(node.expr)
+        rLLInst = self.visit(node.ops[0][1])
+
+        op  = node.ops[0][0]
+
+        if rTy == vec:
+            raise Exception("bbbooooo")
+
+        if op == "<":
+            print "muda"
+        elif op == ">":
+            print "muda"
+        else:
+            raise Exception("Unknown operator:", op)
+
+        raise Exception("muda")
 
     def visitUnarySub(self, node):
 
@@ -419,6 +454,10 @@ class CodeGenLLVM:
 
             return r3
         
+    def emitVSel(self, node):
+
+        self.builder.call
+        f3 = self.builder.call(func, [e3], ftmp3.name)
         
     def visitCallFunc(self, node):
 
@@ -447,6 +486,18 @@ class CodeGenLLVM:
         ret = self.isVectorMathFunction(node.node.name)
         if ret is not False:
             return self.emitVMath(ret[1], args)
+
+        #
+        # Special function?
+        #
+        if (node.node.name == "vsel"):
+            func = self.getExternalSymbolInstruction("vsel")
+            tmp  = symbolTable.genUniqueSymbol(vec)
+
+            print args
+            c    = self.builder.call(func, args, tmp)
+
+            return c
             
 
         ty      = typer.inferType(node.node)
@@ -527,15 +578,39 @@ class CodeGenLLVM:
 
         return self.mkLLConstInst(ty, node.value)
 
+    def emitCommonHeader(self):
+
+        s = """
+define <4xfloat> @muda_sel_vf4(<4xfloat> %a, <4xfloat> %b, <4xi32> %mask) {
+entry:
+    %a.i     = bitcast <4xfloat> %a to <4xi32>
+    %b.i     = bitcast <4xfloat> %b to <4xi32>
+    %tmp0    = and <4xi32> %b.i, %mask
+    %tmp.addr = alloca <4xi32>
+    store <4xi32> <i32 -1, i32 -1, i32 -1, i32 -1>, <4xi32>* %tmp.addr
+    %allone  = load <4xi32>* %tmp.addr
+    %invmask = xor <4xi32> %allone, %mask
+    %tmp1    = and <4xi32> %a.i, %invmask
+    %tmp2    = or <4xi32> %tmp0, %tmp1
+    %r       = bitcast <4xi32> %tmp2 to <4xfloat>
+
+    ret <4xfloat> %r
+}
+
+"""
+        return s
+
     #
     #
     #
     def emitExternalSymbols(self):
 
         d = {
-              'fabsf' : ( llFloatType, [llFloatType] )
-            , 'expf'  : ( llFloatType, [llFloatType] )
-            , 'logf'  : ( llFloatType, [llFloatType] )
+              'fabsf'  : ( llFloatType, [llFloatType] )
+            , 'expf'   : ( llFloatType, [llFloatType] )
+            , 'logf'   : ( llFloatType, [llFloatType] )
+            , 'sqrtf'  : ( llFloatType, [llFloatType] )
+            , 'vsel'   : ( llFVec4Type, [llFVec4Type, llFVec4Type, llFVec4Type] )
             }
 
         for k, v in d.items():
@@ -562,15 +637,16 @@ class CodeGenLLVM:
     #
     def isVectorMathFunction(self, name):
         d = {
-              'vabs' : 'fabsf'
-            , 'vexp' : 'expf'
-            , 'vlog' : 'logf'
+              'vabs'  : 'fabsf'
+            , 'vexp'  : 'expf'
+            , 'vlog'  : 'logf'
+            , 'vsqrt' : 'sqrtf'
             }
 
         if d.has_key(name):
             return (True, d[name])
         else:
-            False
+            return False
 
     def emitVMath(self, fname, llargs):
         """

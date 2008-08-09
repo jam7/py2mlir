@@ -283,6 +283,18 @@ def vlog(a):
 
     return r
 
+def vsqrt(a):
+    assert isinstance(a, vec)
+
+    v0 = math.sqrt(a.value[0])
+    v1 = math.sqrt(a.value[1])
+    v2 = math.sqrt(a.value[2])
+    v3 = math.sqrt(a.value[3])
+    
+    r = vec([v0, v1, v2, v3])
+
+    return r
+
 def printf(msg):
 
     print msg
@@ -313,6 +325,7 @@ intrinsics = {
     , 'vexp'  : ( vec    , [ vec ] )
     , 'vlog'  : ( vec    , [ vec ] )
     , 'vsqrt' : ( vec    , [ vec ] )
+    , 'vsel'  : ( vec    , [ vec, vec, vec ] )
     }
 
 def GetIntrinsicFunctions():
