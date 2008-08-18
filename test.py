@@ -2,9 +2,7 @@
 
 from MUDA import *
 
-def test():
+def test(a = vec):
     
-    a = 1.3
-
-    return a
+    return a + a
 

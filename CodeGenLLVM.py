@@ -12,13 +12,15 @@ from TypeInference import *
 from SymbolTable import *
 
 
-symbolTable   = SymbolTable() 
-typer         = TypeInference(symbolTable)
+symbolTable    = SymbolTable() 
+typer          = TypeInference(symbolTable)
 
-llVoidType    = llvm.core.Type.void()
-llIntType     = llvm.core.Type.int()
-llFloatType   = llvm.core.Type.float()
-llFVec4Type   = llvm.core.Type.vector(llFloatType, 4)
+llVoidType     = llvm.core.Type.void()
+llIntType      = llvm.core.Type.int()
+llFloatType    = llvm.core.Type.float()
+llFVec4Type    = llvm.core.Type.vector(llFloatType, 4)
+llFVec4PtrType = llvm.core.Type.pointer(llFVec4Type)
+llIVec4Type    = llvm.core.Type.vector(llIntType, 4)
 
 def toLLVMTy(ty):
 
@@ -71,7 +73,7 @@ class CodeGenLLVM:
         self.visit(node.node)
 
         print self.module   # Output LLVM code to stdout.
-        # print self.emitCommonHeader()
+        print self.emitCommonHeader()
 
 
     def visitPrint(self, node):
@@ -121,15 +123,27 @@ class CodeGenLLVM:
             if ty is None:
                 raise Exception("Unknown name of type:", tyname.name)
 
-            argLLTys.append(toLLVMTy(ty))
+            llTy = toLLVMTy(ty)
+            
+            # vector argument is passed by pointer.
+            # if llTy == llFVec4Type:
+            #     llTy = llFVec4PtrType
 
-        # TODO: Infer return type.
+            argLLTys.append(llTy)
+
         funcLLVMTy = llvm.core.Type.function(retTy, argLLTys)
         func = llvm.core.Function.new(self.module, funcLLVMTy, node.name)
 
         # Assign name for each arg
         for i, name in enumerate(node.argnames):
-            func.args[i].name = name
+
+            # if llTy == llFVec4Type:
+            #     argname = name + "_p"
+            # else: 
+            #     argname = name
+            argname = name
+
+            func.args[i].name = argname
 
 
         return func
@@ -146,6 +160,9 @@ class CodeGenLLVM:
         in the first pass.
         """
 
+        # init
+        self.currFuncRetType = None 
+        
 
         symbolTable.pushScope(node.name)
         retLLVMTy    = llvm.core.Type.void() # Dummy
@@ -162,10 +179,29 @@ class CodeGenLLVM:
 
             ty = typer.isNameOfFirstClassType(tyname.name)
 
+            bufSym = symbolTable.genUniqueSymbol(ty)
+
+            llTy = toLLVMTy(ty)
+
+            # if llTy == llFVec4Type:
+            #     # %name.buf = alloca ty
+            #     # %tmp = load %arg
+            #     # store %tmp, %name.buf
+            #     allocaInst = self.builder.alloca(llTy, bufSym.name)
+            #     pTy = llFVec4PtrType
+            #     tmpSym     = symbolTable.genUniqueSymbol(ty)
+            #     loadInst   = self.builder.load(func.args[i], tmpSym.name)
+            #     storeInst  = self.builder.store(loadInst, allocaInst)
+            #     symbolTable.append(Symbol(name, ty, "variable", llstorage=allocaInst))
+            # else:
+            #     # %name.buf = alloca ty
+            #     # store val, %name.buf
+            #     allocaInst = self.builder.alloca(llTy, bufSym.name)
+            #     storeInst  = self.builder.store(func.args[i], allocaInst)
+            #     symbolTable.append(Symbol(name, ty, "variable", llstorage=allocaInst))
             # %name.buf = alloca ty
             # store val, %name.buf
-            bufSym = symbolTable.genUniqueSymbol(ty)
-            allocaInst = self.builder.alloca(toLLVMTy(ty), bufSym.name)
+            allocaInst = self.builder.alloca(llTy, bufSym.name)
             storeInst  = self.builder.store(func.args[i], allocaInst)
             symbolTable.append(Symbol(name, ty, "variable", llstorage=allocaInst))
 
@@ -192,10 +228,29 @@ class CodeGenLLVM:
 
             ty = typer.isNameOfFirstClassType(tyname.name)
 
+            bufSym = symbolTable.genUniqueSymbol(ty)
+
+            llTy = toLLVMTy(ty)
+
+            # if llTy == llFVec4Type:
+            #     # %name.buf = alloca ty
+            #     # %tmp = load %arg
+            #     # store %tmp, %name.buf
+            #     allocaInst = self.builder.alloca(llTy, bufSym.name)
+            #     pTy = llFVec4PtrType
+            #     tmpSym     = symbolTable.genUniqueSymbol(ty)
+            #     loadInst   = self.builder.load(func.args[i], tmpSym.name)
+            #     storeInst  = self.builder.store(loadInst, allocaInst)
+            #     symbolTable.append(Symbol(name, ty, "variable", llstorage=allocaInst))
+            # else:
+            #     # %name.buf = alloca ty
+            #     # store val, %name.buf
+            #     allocaInst = self.builder.alloca(llTy, bufSym.name)
+            #     storeInst  = self.builder.store(func.args[i], allocaInst)
+            #     symbolTable.append(Symbol(name, ty, "variable", llstorage=allocaInst))
             # %name.buf = alloca ty
             # store val, %name.buf
-            bufSym = symbolTable.genUniqueSymbol(ty)
-            allocaInst = self.builder.alloca(toLLVMTy(ty), bufSym.name)
+            allocaInst = self.builder.alloca(llTy, bufSym.name)
             storeInst  = self.builder.store(func.args[i], allocaInst)
             symbolTable.append(Symbol(name, ty, "variable", llstorage=allocaInst))
 
@@ -204,8 +259,13 @@ class CodeGenLLVM:
         if self.currFuncRetType is None:
             # Add ret void.
             self.builder.ret_void()
+            self.currFuncRetType = void
 
         symbolTable.popScope()
+
+        # Register function to symbol table
+        symbolTable.append(Symbol(node.name, self.currFuncRetType, "function", llstorage=func))
+
 
 
     def visitStmt(self, node):
@@ -271,15 +331,83 @@ class CodeGenLLVM:
 
     def visitIf(self, node):
 
-        print node.tests
-        print node.else_
+        print "; ", node.tests
+        print "; ", node.else_
 
         raise Exception("muda")
 
+    def emitVCompare(self, op, lInst, rInst):
+
+        d = { "==" : llvm.core.RPRED_OEQ
+            , "!=" : llvm.core.RPRED_ONE
+            , ">"  : llvm.core.RPRED_OGT 
+            , ">=" : llvm.core.RPRED_OGE
+            , "<"  : llvm.core.RPRED_OLT 
+            , "<=" : llvm.core.RPRED_OLE
+            }
+
+        llop = d[op]
+
+        i0 = llvm.core.Constant.int(llIntType, 0);
+        i1 = llvm.core.Constant.int(llIntType, 1);
+        i2 = llvm.core.Constant.int(llIntType, 2);
+        i3 = llvm.core.Constant.int(llIntType, 3);
+        vizero = llvm.core.Constant.vector([llvm.core.Constant.int(llIntType, 0)] * 4)
+
+        tmp0  = symbolTable.genUniqueSymbol(float)
+        tmp1  = symbolTable.genUniqueSymbol(float)
+        tmp2  = symbolTable.genUniqueSymbol(float)
+        tmp3  = symbolTable.genUniqueSymbol(float)
+        tmp4  = symbolTable.genUniqueSymbol(float)
+        tmp5  = symbolTable.genUniqueSymbol(float)
+        tmp6  = symbolTable.genUniqueSymbol(float)
+        tmp7  = symbolTable.genUniqueSymbol(float)
+        le0   = self.builder.extract_element(lInst, i0, tmp0.name) 
+        le1   = self.builder.extract_element(lInst, i1, tmp1.name) 
+        le2   = self.builder.extract_element(lInst, i2, tmp2.name) 
+        le3   = self.builder.extract_element(lInst, i3, tmp3.name) 
+        re0   = self.builder.extract_element(rInst, i0, tmp4.name) 
+        re1   = self.builder.extract_element(rInst, i1, tmp5.name) 
+        re2   = self.builder.extract_element(rInst, i2, tmp6.name) 
+        re3   = self.builder.extract_element(rInst, i3, tmp7.name) 
+
+        ftmp0 = symbolTable.genUniqueSymbol(float)
+        ftmp1 = symbolTable.genUniqueSymbol(float)
+        ftmp2 = symbolTable.genUniqueSymbol(float)
+        ftmp3 = symbolTable.genUniqueSymbol(float)
+
+        f0 = self.builder.fcmp(llop, le0, re0, ftmp0.name)
+        f1 = self.builder.fcmp(llop, le1, re1, ftmp1.name)
+        f2 = self.builder.fcmp(llop, le2, re2, ftmp2.name)
+        f3 = self.builder.fcmp(llop, le3, re3, ftmp3.name)
+
+        # i1 -> i32
+        ctmp0 = symbolTable.genUniqueSymbol(int)
+        ctmp1 = symbolTable.genUniqueSymbol(int)
+        ctmp2 = symbolTable.genUniqueSymbol(int)
+        ctmp3 = symbolTable.genUniqueSymbol(int)
+        c0 = self.builder.sext(f0, llIntType)
+        c1 = self.builder.sext(f1, llIntType)
+        c2 = self.builder.sext(f2, llIntType)
+        c3 = self.builder.sext(f3, llIntType)
+
+        # pack
+        s0 = symbolTable.genUniqueSymbol(llIVec4Type)
+        s1 = symbolTable.genUniqueSymbol(llIVec4Type)
+        s2 = symbolTable.genUniqueSymbol(llIVec4Type)
+        s3 = symbolTable.genUniqueSymbol(llIVec4Type)
+
+        r0 = self.builder.insert_element(vizero, c0, i0, s0.name)
+        r1 = self.builder.insert_element(r0    , c1, i1, s1.name)
+        r2 = self.builder.insert_element(r1    , c2, i2, s2.name)
+        r3 = self.builder.insert_element(r2    , c3, i3, s3.name)
+
+        return r3
+
     def visitCompare(self, node):
 
-        print node.expr
-        print node.ops[0]
+        print "; ", node.expr
+        print "; ", node.ops[0]
 
         lTy = typer.inferType(node.expr)
         rTy = typer.inferType(node.ops[0][1])
@@ -293,7 +421,7 @@ class CodeGenLLVM:
         op  = node.ops[0][0]
 
         if rTy == vec:
-            raise Exception("bbbooooo")
+            return self.emitVCompare(op, lLLInst, rLLInst)
 
         if op == "<":
             print "muda"
@@ -325,9 +453,9 @@ class CodeGenLLVM:
 
 
         ty = typer.inferType(node)
-        print "getattr: expr", node.expr
-        print "getattr: attrname", node.attrname
-        print "getattr: ty", ty
+        print "; getattr: expr", node.expr
+        print "; getattr: attrname", node.attrname
+        print "; getattr: ty", ty
 
         rLLInst  = self.visit(node.expr)
         tmpSym   = symbolTable.genUniqueSymbol(ty)
@@ -494,19 +622,23 @@ class CodeGenLLVM:
             func = self.getExternalSymbolInstruction("vsel")
             tmp  = symbolTable.genUniqueSymbol(vec)
 
-            print args
-            c    = self.builder.call(func, args, tmp)
+            print "; ", args
+            c    = self.builder.call(func, args, tmp.name)
 
             return c
             
-
+        #
+        # Defined in the source?
+        #
         ty      = typer.inferType(node.node)
         funcSig = symbolTable.lookup(node.node.name)
 
-        # emit call 
+        if funcSig.kind is not "function":
+            raise Exception("Symbol isn't registered as function:", node.node.name)
 
-        print funcSig
-        raise Exception("TODO:")
+        # emit call 
+        tmp  = symbolTable.genUniqueSymbol(vec)
+        return self.builder.call(funcSig.llstorage, args, tmp.name)
 
 
     def visitList(self, node):
@@ -581,7 +713,7 @@ class CodeGenLLVM:
     def emitCommonHeader(self):
 
         s = """
-define <4xfloat> @muda_sel_vf4(<4xfloat> %a, <4xfloat> %b, <4xi32> %mask) {
+define <4xfloat> @vsel(<4xfloat> %a, <4xfloat> %b, <4xi32> %mask) {
 entry:
     %a.i     = bitcast <4xfloat> %a to <4xi32>
     %b.i     = bitcast <4xfloat> %b to <4xi32>
@@ -610,7 +742,7 @@ entry:
             , 'expf'   : ( llFloatType, [llFloatType] )
             , 'logf'   : ( llFloatType, [llFloatType] )
             , 'sqrtf'  : ( llFloatType, [llFloatType] )
-            , 'vsel'   : ( llFVec4Type, [llFVec4Type, llFVec4Type, llFVec4Type] )
+            , 'vsel'   : ( llFVec4Type, [llFVec4Type, llFVec4Type, llIVec4Type] )
             }
 
         for k, v in d.items():
@@ -685,12 +817,17 @@ entry:
         s1 = symbolTable.genUniqueSymbol(llFVec4Type)
         s2 = symbolTable.genUniqueSymbol(llFVec4Type)
         s3 = symbolTable.genUniqueSymbol(llFVec4Type)
+
         r0 = self.builder.insert_element(vzero, f0, i0, s0.name)
         r1 = self.builder.insert_element(r0   , f1, i1, s1.name)
         r2 = self.builder.insert_element(r1   , f2, i2, s2.name)
         r3 = self.builder.insert_element(r2   , f3, i3, s3.name)
-
         return r3
+
+        # r0 = self.builder.insert_element(vzero, f2, i2, s0.name)
+        # r1 = self.builder.insert_element(r0   , e1, i1, s1.name)
+        # r2 = self.builder.insert_element(r1   , e2, i0, s2.name)
+        # return r2
 
     def emitVAbs(self, llargs):
 
