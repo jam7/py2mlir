@@ -17,7 +17,7 @@ def mytest():
         r = simplebs.BlackScholes(s, x, t, r, v)
         # print r
 
-    print r
+    print(r)
 
 
 if __name__ == '__main__':

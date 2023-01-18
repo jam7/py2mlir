@@ -5,7 +5,7 @@ import os, sys
 from CodeGenLLVM import *
 
 def usage():
-    print "Usage: py2llvm.py <input.py>"
+    print("Usage: py2llvm.py <input.py>")
     sys.exit(1)
 
 def main():

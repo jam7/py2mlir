@@ -297,22 +297,22 @@ def vsqrt(a):
 
 def printf(msg):
 
-    print msg
+    print(msg)
 
 
 def _testVec():
 
     a = vec([1.0, 2.0, 3.0, 4.0])
     
-    print a
+    print(a)
 
-    print a.x
-    print a.y
-    print a.z
-    print a.w
+    print(a.x)
+    print(a.y)
+    print(a.z)
+    print(a.w)
 
-    print a.xy
-    print a.yz
+    print(a.xy)
+    print(a.yz)
 
     b = a.x
 

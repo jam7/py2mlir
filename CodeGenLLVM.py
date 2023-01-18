@@ -72,8 +72,8 @@ class CodeGenLLVM:
 
         self.visit(node.node)
 
-        print self.module   # Output LLVM code to stdout.
-        print self.emitCommonHeader()
+        print(self.module)  # Output LLVM code to stdout.
+        print(self.emitCommonHeader())
 
 
     def visitPrint(self, node):
@@ -87,7 +87,7 @@ class CodeGenLLVM:
     def visitReturn(self, node):
 
         ty   = typer.inferType(node.value)
-        print "; Return ty = ", ty
+        print("; Return ty = ", ty)
 
         # Return(Const(None))
         if isinstance(node.value, compiler.ast.Const):
@@ -272,7 +272,7 @@ class CodeGenLLVM:
 
         for node in node.nodes:
 
-            print "; [stmt]", node  
+            print("; [stmt]", node)
 
             self.visit(node)
 
@@ -281,13 +281,13 @@ class CodeGenLLVM:
         if len(node.nodes) != 1:
             raise Exception("TODO:", node)
 
-        print "; [Asgn]"
+        print("; [Asgn]")
         rTy     = typer.inferType(node.expr)
-        print "; [Asgn]. rTy = ", rTy
+        print("; [Asgn]. rTy = ", rTy)
 
-        print "; [Asgn]. node.expr = ", node.expr
+        print("; [Asgn]. node.expr = ", node.expr)
         rLLInst = self.visit(node.expr)
-        print "; [Asgn]. rhs = ", rLLInst
+        print("; [Asgn]. rhs = ", rLLInst)
 
         lhsNode = node.nodes[0]
 
@@ -304,7 +304,7 @@ class CodeGenLLVM:
 
                 sym = Symbol(lhsNode.name, rTy, "variable", llstorage = llStorage)
                 symbolTable.append(sym)
-                print "; [Sym] New symbol added: ", sym
+                print("; [Sym] New symbol added: ", sym)
 
                 lTy = rTy
 
@@ -321,18 +321,18 @@ class CodeGenLLVM:
 
         storeInst = self.builder.store(rLLInst, lSym.llstorage)
 
-        print ";", storeInst
+        print(";", storeInst)
 
-        print "; [Asgn]", node  
-        print "; [Asgn] nodes = ", node.nodes 
-        print "; [Asgn] expr  = ", node.expr
+        print("; [Asgn]", node)
+        print("; [Asgn] nodes = ", node.nodes)
+        print("; [Asgn] expr  = ", node.expr)
 
         # No return
 
     def visitIf(self, node):
 
-        print "; ", node.tests
-        print "; ", node.else_
+        print("; ", node.tests)
+        print("; ", node.else_)
 
         raise Exception("muda")
 
@@ -406,8 +406,8 @@ class CodeGenLLVM:
 
     def visitCompare(self, node):
 
-        print "; ", node.expr
-        print "; ", node.ops[0]
+        print("; ", node.expr)
+        print("; ", node.ops[0])
 
         lTy = typer.inferType(node.expr)
         rTy = typer.inferType(node.ops[0][1])
@@ -424,9 +424,9 @@ class CodeGenLLVM:
             return self.emitVCompare(op, lLLInst, rLLInst)
 
         if op == "<":
-            print "muda"
+            print("muda")
         elif op == ">":
-            print "muda"
+            print("muda")
         else:
             raise Exception("Unknown operator:", op)
 
@@ -453,9 +453,9 @@ class CodeGenLLVM:
 
 
         ty = typer.inferType(node)
-        print "; getattr: expr", node.expr
-        print "; getattr: attrname", node.attrname
-        print "; getattr: ty", ty
+        print("; getattr: expr", node.expr)
+        print("; getattr: attrname", node.attrname)
+        print("; getattr: ty", ty)
 
         rLLInst  = self.visit(node.expr)
         tmpSym   = symbolTable.genUniqueSymbol(ty)
@@ -484,7 +484,7 @@ class CodeGenLLVM:
         tmpSym = symbolTable.genUniqueSymbol(lTy)
 
         addInst = self.builder.add(lLLInst, rLLInst, tmpSym.name)
-        print "; [AddOp] inst = ", addInst
+        print("; [AddOp] inst = ", addInst)
 
         return addInst
 
@@ -502,7 +502,7 @@ class CodeGenLLVM:
         tmpSym = symbolTable.genUniqueSymbol(lTy)
 
         subInst = self.builder.sub(lLLInst, rLLInst, tmpSym.name)
-        print "; [SubOp] inst = ", subInst
+        print("; [SubOp] inst = ", subInst)
 
         return subInst
 
@@ -521,7 +521,7 @@ class CodeGenLLVM:
         tmpSym = symbolTable.genUniqueSymbol(lTy)
 
         mulInst = self.builder.mul(lLLInst, rLLInst, tmpSym.name)
-        print "; [MulOp] inst = ", mulInst
+        print("; [MulOp] inst = ", mulInst)
 
         return mulInst
 
@@ -544,7 +544,7 @@ class CodeGenLLVM:
         else:
             raise Exception("TODO: div for type: ", lTy)
 
-        print "; [DIvOp] inst = ", divInst
+        print("; [DIvOp] inst = ", divInst)
 
         return divInst
 
@@ -591,14 +591,14 @@ class CodeGenLLVM:
 
         assert isinstance(node.node, compiler.ast.Name)
 
-        print "; callfunc", node.args
+        print("; callfunc", node.args)
 
         args = [self.visit(a) for a in node.args]
 
-        print "; callfuncafter", args
+        print("; callfuncafter", args)
 
         ty = typer.isNameOfFirstClassType(node.node.name)
-        print "; callfuncafter: ty = ",ty
+        print("; callfuncafter: ty = ", ty)
 
         #
         # value initialier? 
@@ -622,7 +622,7 @@ class CodeGenLLVM:
             func = self.getExternalSymbolInstruction("vsel")
             tmp  = symbolTable.genUniqueSymbol(vec)
 
-            print "; ", args
+            print("; ", args)
             c    = self.builder.call(func, args, tmp.name)
 
             return c
@@ -658,7 +658,7 @@ class CodeGenLLVM:
 
         loadInst = self.builder.load(sym.llstorage, tmpSym.name)
 
-        print "; [Leaf] inst = ", loadInst
+        print("; [Leaf] inst = ", loadInst)
         return loadInst
 
 
@@ -674,7 +674,7 @@ class CodeGenLLVM:
     def mkLLConstInst(self, ty, value):
 
         # ty = typer.inferType(node)
-        # print "; [Typer] %s => %s" % (str(node), str(ty))
+        # print("; [Typer] %s => %s" % (str(node), str(ty)))
 
         llTy   = toLLVMTy(ty)
         bufSym = symbolTable.genUniqueSymbol(ty)
@@ -694,13 +694,13 @@ class CodeGenLLVM:
             llConst = llvm.core.Constant.real(llFloatType, value)
 
         elif llTy == llFVec4Type:
-            print ";", value
+            print(";", value)
             raise Exception("muda")
     
         storeInst = self.builder.store(llConst, allocInst)
         loadInst  = self.builder.load(allocInst, tmpSym.name)
 
-        print ";", loadInst
+        print(";", loadInst)
 
         return loadInst
 
@@ -846,7 +846,7 @@ def main():
         _test()
 
     ast = compiler.parseFile(sys.argv[1])
-    # print ast
+    # print(ast)
 
     compiler.walk(ast, CodeGenLLVM())
 

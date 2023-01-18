@@ -147,12 +147,12 @@ class TypeInference(object):
 
         assert isinstance(node.node, compiler.ast.Name)
 
-        print "; => CalFunc:", node
+        print("; => CalFunc:", node)
 
         # Intrinsic function?
         f = self.getIntrinsicFunctionFromName(node.node.name)
         if f is not None:
-            print "; => Intrinsic:", f
+            print("; => Intrinsic:", f)
             return f[0]
 
         
@@ -169,8 +169,8 @@ class TypeInference(object):
         right = self.inferType(node.right) 
 
         if left != right:
-            print "; [type inference] Type mismatch found at line %d: left = %s, right = %s" % (node.lineno, left, right)
-            print ";                 node = %s" % (node)
+            print("; [type inference] Type mismatch found at line %d: left = %s, right = %s" % (node.lineno, left, right))
+            print(";                 node = %s" % (node))
             return None
 
         return left
@@ -182,8 +182,8 @@ class TypeInference(object):
         right = self.inferType(node.right) 
 
         if left != right:
-            print "; [type inference] Type mismatch found at line %d: left = %s, right = %s" % (node.lineno, left, right)
-            print ";                 node = %s" % (node)
+            print("; [type inference] Type mismatch found at line %d: left = %s, right = %s" % (node.lineno, left, right))
+            print(";                 node = %s" % (node))
             return None
 
         return left
@@ -194,8 +194,8 @@ class TypeInference(object):
         right = self.inferType(node.right) 
 
         if left != right:
-            print "; [type inference] Type mismatch found at line %d: left = %s, right = %s" % (node.lineno, left, right)
-            print ";                 node = %s" % (node)
+            print("; [type inference] Type mismatch found at line %d: left = %s, right = %s" % (node.lineno, left, right))
+            print(";                 node = %s" % (node))
             return None
 
         return left
@@ -207,8 +207,8 @@ class TypeInference(object):
         right = self.inferType(node.right) 
 
         if left != right:
-            print "; [type inference] Type mismatch found at line %d: left = %s, right = %s" % (node.lineno, left, right)
-            print ";                 node = %s" % (node)
+            print("; [type inference] Type mismatch found at line %d: left = %s, right = %s" % (node.lineno, left, right))
+            print(";                 node = %s" % (node))
             return None
 
         return left
@@ -236,7 +236,7 @@ class TypeInference(object):
 
         # Firstly, name of type?
         if self.typeDic.has_key(name):
-            print "; => found type for ", name
+            print("; => found type for ", name)
             return self.typeDic[name]
 
         # Next, lookup symbol from the symbol table.
@@ -244,7 +244,7 @@ class TypeInference(object):
         if sym is not None:
             return sym.type
 
-        print "; => not found. name=", name
+        print("; => not found. name=", name)
         return None
 
 
