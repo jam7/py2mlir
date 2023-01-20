@@ -74,7 +74,7 @@ class SymbolTable:
 
         d = self.symbols[-1][1]
 
-        # if d.has_key(sym.name):
+        # if sym.name in d:
         #    raise Exception("Symbol %s is already defined" % sym.name)
 
         d[sym.name] = sym
@@ -89,7 +89,7 @@ class SymbolTable:
         for i in range(len(self.symbols)):
 
             d = self.symbols[i][1]
-            if d.has_key(name):
+            if name in d:
                 return d[name]
 
         return None
@@ -104,7 +104,7 @@ class SymbolTable:
         for i in range(len(self.symbols)):
 
             d = self.symbols[i][1]
-            if d.has_key(name):
+            if name in d:
                 return d[name]
 
         raise Exception("Undefine symbol: ", name)
