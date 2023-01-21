@@ -44,6 +44,45 @@ def toLLVMTy(ty):
         
         
 
+class DummyIRBuilder:
+    """
+    Dummy IR Builder to ignore all requests.
+
+    py2llvm performs type inference and decide the type of return value.
+    In order to do that, py2llvm requires two passes.  1st pass to infer
+    return type.  2nd pass to generate code.  This dummy IR builder is
+    used in this 1st pass.
+    """
+
+    def ret_void(self):
+        return 'dummyIR'
+    def ret(self, *args, **kwargs):
+        return 'dummyIR'
+    def alloca(self, *args, **kwargs):
+        return 'dummyIR'
+    def load(self, *args, **kwargs):
+        return 'dummyIR'
+    def store(self, *args, **kwargs):
+        return 'dummyIR'
+    def add(self, *args, **kwargs):
+        return 'dummyIR'
+    def sub(self, *args, **kwargs):
+        return 'dummyIR'
+    def mul(self, *args, **kwargs):
+        return 'dummyIR'
+    def fdiv(self, *args, **kwargs):
+        return 'dummyIR'
+    def call(self, *args, **kwargs):
+        return 'dummyIR'
+    def fcmp(self, *args, **kwargs):
+        return 'dummyIR'
+    def sext(self, *args, **kwargs):
+        return 'dummyIR'
+    def insert_element(self, *args, **kwargs):
+        return 'dummyIR'
+    def extract_element(self, *args, **kwargs):
+        return 'dummyIR'
+
 class CodeGenLLVM(ast.NodeVisitor):
     """
     LLVM CodeGen class 
@@ -154,13 +193,14 @@ class CodeGenLLVM(ast.NodeVisitor):
     def visit_FunctionDef(self, node):
 
         """
-        Do nasty trick to handle return type of function correctly.
+        Perform 2 passes to translate python function ot LLVM IR.
+        1st pass parse python function to infer a return type.
+        2nd pass parse python function and translate it to LLVM IR.
 
-        We visit node AST two times.
-        First pass just determines return type of the function
-        (All LLVM code body generated are discarded).
-        Then second pass we emit LLVM code body with return type found
-        in the first pass.
+        Original implementation was translating python twice and
+        discarding first result.  However, llvmlite doesn't have
+        such discarding mechanism, so I create dummyIRBuilder to
+        ignore all requests and use it in 1st pass.
         """
 
         # init
@@ -169,12 +209,8 @@ class CodeGenLLVM(ast.NodeVisitor):
 
         symbolTable.pushScope(node.name)
         retLLVMTy    = llVoidType # Dummy
-        func         = self.mkFunctionSignature(retLLVMTy, node)
-        entry        = func.append_basic_block("entry")
-        builder      = ll.IRBuilder(entry)
-        self.func    = func
+        builder      = DummyIRBuilder()
         self.builder = builder
-        self.funcs.append(func)
 
         # Add function argument to symblol table.
         # And emit function prologue.
@@ -184,40 +220,12 @@ class CodeGenLLVM(ast.NodeVisitor):
 
             bufSym = symbolTable.genUniqueSymbol(ty)
 
-            llTy = toLLVMTy(ty)
-
-            # if llTy == llFVec4Type:
-            #     # %name.buf = alloca ty
-            #     # %tmp = load %arg
-            #     # store %tmp, %name.buf
-            #     allocaInst = self.builder.alloca(llTy, bufSym.name)
-            #     pTy = llFVec4PtrType
-            #     tmpSym     = symbolTable.genUniqueSymbol(ty)
-            #     loadInst   = self.builder.load(func.args[i], tmpSym.name)
-            #     storeInst  = self.builder.store(loadInst, allocaInst)
-            #     symbolTable.append(Symbol(name.arg, ty, "variable", llstorage=allocaInst))
-            # else:
-            #     # %name.buf = alloca ty
-            #     # store val, %name.buf
-            #     allocaInst = self.builder.alloca(llTy, bufSym.name)
-            #     storeInst  = self.builder.store(func.args[i], allocaInst)
-            #     symbolTable.append(Symbol(name.arg, ty, "variable", llstorage=allocaInst))
-            # %name.buf = alloca ty
-            # store val, %name.buf
-            allocaInst = self.builder.alloca(llTy, bufSym.name)
-            storeInst  = self.builder.store(func.args[i], allocaInst)
-            symbolTable.append(Symbol(name.arg, ty, "variable", llstorage=allocaInst))
+            symbolTable.append(Symbol(name.arg, ty, "variable", llstorage=None))
 
         for stmt in node.body:
             if isinstance(stmt, ast.AST):
                 self.visit(stmt)
-        '''
         symbolTable.popScope()
-
-        # Discard llvm code except for return type 
-        func.delete()
-        del(self.funcs[-1])
-
 
         symbolTable.pushScope(node.name)
         retLLVMTy    = toLLVMTy(self.currFuncRetType)
@@ -258,12 +266,11 @@ class CodeGenLLVM(ast.NodeVisitor):
             # store val, %name.buf
             allocaInst = self.builder.alloca(llTy, name=bufSym.name)
             storeInst  = self.builder.store(func.args[i], allocaInst)
-            symbolTable.append(Symbol(name, ty, "variable", llstorage=allocaInst))
+            symbolTable.append(Symbol(name.arg, ty, "variable", llstorage=allocaInst))
 
         for stmt in node.body:
             if isinstance(stmt, ast.AST):
                 self.visit(stmt)
-        '''
 
         if self.currFuncRetType is None:
             # Add ret void.
