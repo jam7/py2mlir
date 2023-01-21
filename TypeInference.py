@@ -1,5 +1,5 @@
 import re
-import compiler
+import ast
 
 from SymbolTable import *
 from MUDA import *
@@ -12,11 +12,11 @@ class void(object):
         pass
 
 
-class TypeInference(object):
+class TypeInference(ast.NodeVisitor):
     """
     Simple type inference mechanism for python AST.
     >>> t = TypeInference()
-    >>> t.inferType(compiler.parse("1+3"))
+    >>> t.visit(ast.parse("1+3"))
     <type 'int'>
     """
 
@@ -55,17 +55,19 @@ class TypeInference(object):
 
 
     def isNameOfFirstClassType(self, name):
-        if self.typeDic.has_key(name):
+        if name in self.typeDic:
             return self.typeDic[name]
 
         return None
 
     def getIntrinsicFunctionFromName(self, name):
-        if self.intrinsics.has_key(name):
+        if name in self.intrinsics:
             return self.intrinsics[name]
 
         return None
 
+    '''
+    # Change to use ast.NodeVisitor
     def inferType(self, node):
         """
         Return type if type inference was succeeded, None if failed.
@@ -93,15 +95,21 @@ class TypeInference(object):
         method = getattr(self, method_name)
 
         return method(node) 
+    '''
 
-    def inferModule(self, node):
+    def visit_Module(self, node):
 
+        raise Exception("visit_Module in TypeInference should not be called:", ast.dump(node))
         return self.inferType(node.node)
     
 
-    def inferStmt(self, node):
+    '''
+    # No Stmt in python3 ast
+    def visit_Stmt(self, node):
 
+        print("inferType visitStmt", ast.dump(node))
         return self.inferType(node.nodes[0])
+    '''
 
     def checkSwizzleLetter(self, name):
 
@@ -128,7 +136,7 @@ class TypeInference(object):
         swizzleName = node.attrname
         self.checkSwizzleLetter(swizzleName)
 
-        if len(swizzleName) is 1:
+        if len(swizzleName) == 1:
             # scalar
             if ty == vec:
                 return float
@@ -139,76 +147,42 @@ class TypeInference(object):
             # vector
             return ty
 
+    '''
+    # No Discard in python3 ast
     def inferDiscard(self, node):
 
         return self.inferType(node.expr)
+    '''
 
-    def inferCallFunc(self, node):
+    def visit_Call(self, node):
 
-        assert isinstance(node.node, compiler.ast.Name)
+        assert isinstance(node.func, ast.Name)
 
-        print("; => CalFunc:", node)
+        print("; => CalFunc:", ast.dump(node))
 
         # Intrinsic function?
-        f = self.getIntrinsicFunctionFromName(node.node.name)
+        f = self.getIntrinsicFunctionFromName(node.func.id)
         if f is not None:
             print("; => Intrinsic:", f)
             return f[0]
 
         
+        raise Exception("TODO:", ast.dump(node))
         return self.inferType(node.node)
 
 
-    def inferUnarySub(self, node):
+    def visit_UnaryOp(self, node):
 
-        return self.inferType(node.expr)
+        return self.visit(node.operand)
 
-    def inferAdd(self, node):
+    def visit_BinOp(self, node):
     
-        left  = self.inferType(node.left)
-        right = self.inferType(node.right) 
+        left  = self.visit(node.left)
+        right = self.visit(node.right)
 
         if left != right:
             print("; [type inference] Type mismatch found at line %d: left = %s, right = %s" % (node.lineno, left, right))
-            print(";                 node = %s" % (node))
-            return None
-
-        return left
-
-
-    def inferSub(self, node):
-    
-        left  = self.inferType(node.left)
-        right = self.inferType(node.right) 
-
-        if left != right:
-            print("; [type inference] Type mismatch found at line %d: left = %s, right = %s" % (node.lineno, left, right))
-            print(";                 node = %s" % (node))
-            return None
-
-        return left
-
-    def inferMul(self, node):
-    
-        left  = self.inferType(node.left)
-        right = self.inferType(node.right) 
-
-        if left != right:
-            print("; [type inference] Type mismatch found at line %d: left = %s, right = %s" % (node.lineno, left, right))
-            print(";                 node = %s" % (node))
-            return None
-
-        return left
-
-
-    def inferDiv(self, node):
-    
-        left  = self.inferType(node.left)
-        right = self.inferType(node.right) 
-
-        if left != right:
-            print("; [type inference] Type mismatch found at line %d: left = %s, right = %s" % (node.lineno, left, right))
-            print(";                 node = %s" % (node))
+            print(";                 node = %s" % ast.dump(node))
             return None
 
         return left
@@ -218,24 +192,26 @@ class TypeInference(object):
     # -- Leaf
     #
 
+    '''
     def inferAssName(self, node):
 
         name = node.name
 
         # Firstly, name of type?
-        if self.typeDic.has_key(name):
+        if name in self.typeDic:
             return self.typeDic[name]
 
         # Next, lookup symbol
         # return vec
         return None
+    '''
     
-    def inferName(self, node):
+    def visit_Name(self, node):
 
-        name = node.name
+        name = node.id
 
         # Firstly, name of type?
-        if self.typeDic.has_key(name):
+        if name in self.typeDic:
             print("; => found type for ", name)
             return self.typeDic[name]
 
@@ -248,7 +224,7 @@ class TypeInference(object):
         return None
 
 
-    def inferConst(self, node):
+    def visit_Constant(self, node):
 
         value = node.value
 

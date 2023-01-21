@@ -2,9 +2,9 @@
 
 import os, sys
 import re
-import compiler
+import ast
 
-import llvm.core
+import llvmlite.ir as ll
 
 # from VecTypes import *
 from MUDA import *
@@ -15,16 +15,16 @@ from SymbolTable import *
 symbolTable    = SymbolTable() 
 typer          = TypeInference(symbolTable)
 
-llVoidType     = llvm.core.Type.void()
-llIntType      = llvm.core.Type.int()
-llFloatType    = llvm.core.Type.float()
-llFVec4Type    = llvm.core.Type.vector(llFloatType, 4)
-llFVec4PtrType = llvm.core.Type.pointer(llFVec4Type)
-llIVec4Type    = llvm.core.Type.vector(llIntType, 4)
+llVoidType     = ll.VoidType()
+llIntType      = ll.IntType(32)
+llFloatType    = ll.FloatType()
+llFVec4Type    = ll.VectorType(llFloatType, 4)
+llFVec4PtrType = ll.PointerType(llFVec4Type)
+llIVec4Type    = ll.VectorType(llIntType, 4)
 
 def toLLVMTy(ty):
 
-    floatTy = llvm.core.Type.float()
+    floatTy = ll.FloatType()
 
     if ty is None:
         return llVoidType
@@ -37,14 +37,14 @@ def toLLVMTy(ty):
         # str   : TODO
         }
 
-    if d.has_key(ty):
+    if ty in d:
         return d[ty]
 
     raise Exception("Unknown type:", ty)
         
         
 
-class CodeGenLLVM:
+class CodeGenLLVM(ast.NodeVisitor):
     """
     LLVM CodeGen class 
     """
@@ -54,7 +54,7 @@ class CodeGenLLVM:
         self.body             = ""
         self.globalscope      = ""
 
-        self.module           = llvm.core.Module.new("module")
+        self.module           = ll.Module("module")
         self.funcs            = []
         self.func             = None # Current function
         self.builder          = None
@@ -64,33 +64,36 @@ class CodeGenLLVM:
 
         self.externals        = {}
 
-
-    def visitModule(self, node):
+    def visit_Module(self, node):
 
         # emitExternalSymbols() should be called before self.visit(node.node)
         self.emitExternalSymbols()
 
-        self.visit(node.node)
+        for stmt in node.body:
+            if isinstance(stmt, ast.AST):
+                self.visit(stmt)
 
         print(self.module)  # Output LLVM code to stdout.
         print(self.emitCommonHeader())
 
 
-    def visitPrint(self, node):
+    '''
+    # No Print and Printnl in python3 ast
+    def visit_Print(self, node):
         return None # Discard
-
 
     def visitPrintnl(self, node):
         return None # Discard
+    '''
 
 
-    def visitReturn(self, node):
+    def visit_Return(self, node):
 
-        ty   = typer.inferType(node.value)
+        ty   = typer.visit(node.value)
         print("; Return ty = ", ty)
 
         # Return(Const(None))
-        if isinstance(node.value, compiler.ast.Const):
+        if isinstance(node.value, ast.NameConstant):
             if node.value.value == None:
                 self.currFuncRetType = void
                 self.prevFuncRetNode = node
@@ -103,25 +106,25 @@ class CodeGenLLVM:
             self.prevFuncRetNode = node
 
         elif self.currFuncRetType != ty:
-            raise Exception("Different type for return expression: expected %s(lineno=%d, %s) but got %s(lineno=%d, %s)" % (self.currFuncRetType, self.prevFuncRetNode.lineno, self.prevFuncRetNode, ty, node.lineno, node))
+            raise Exception("Different type for return expression: expected %s(lineno=%d, %s) but got %s(lineno=%d, %s)" % (self.currFuncRetType, self.prevFuncRetNode.lineno, self.prevFuncRetNode, ty, node.lineno, ast.dump(node)))
 
         return self.builder.ret(expr)
 
     def mkFunctionSignature(self, retTy, node):
 
         # Argument should have default value which represents type of argument.
-        if len(node.argnames) != len(node.defaults):
+        if len(node.args.args) != len(node.args.defaults):
             raise Exception("Function argument should have default values which represents type of the argument:", node)
 
         argLLTys = []
 
-        for (name, tyname) in zip(node.argnames, node.defaults):
+        for (name, tyname) in zip(node.args.args, node.args.defaults):
 
-            assert isinstance(tyname, compiler.ast.Name)
+            assert isinstance(tyname, ast.Name)
 
-            ty = typer.isNameOfFirstClassType(tyname.name)
+            ty = typer.isNameOfFirstClassType(tyname.id)
             if ty is None:
-                raise Exception("Unknown name of type:", tyname.name)
+                raise Exception("Unknown name of type:", tyname.id)
 
             llTy = toLLVMTy(ty)
             
@@ -131,24 +134,24 @@ class CodeGenLLVM:
 
             argLLTys.append(llTy)
 
-        funcLLVMTy = llvm.core.Type.function(retTy, argLLTys)
-        func = llvm.core.Function.new(self.module, funcLLVMTy, node.name)
+        funcLLVMTy = ll.FunctionType(retTy, argLLTys)
+        func = ll.Function(self.module, funcLLVMTy, node.name)
 
         # Assign name for each arg
-        for i, name in enumerate(node.argnames):
+        for i, name in enumerate(node.args.args):
 
             # if llTy == llFVec4Type:
             #     argname = name + "_p"
             # else: 
             #     argname = name
-            argname = name
+            argname = name.arg
 
             func.args[i].name = argname
 
 
         return func
         
-    def visitFunction(self, node):
+    def visit_FunctionDef(self, node):
 
         """
         Do nasty trick to handle return type of function correctly.
@@ -165,19 +168,19 @@ class CodeGenLLVM:
         
 
         symbolTable.pushScope(node.name)
-        retLLVMTy    = llvm.core.Type.void() # Dummy
+        retLLVMTy    = llVoidType # Dummy
         func         = self.mkFunctionSignature(retLLVMTy, node)
         entry        = func.append_basic_block("entry")
-        builder      = llvm.core.Builder.new(entry)
+        builder      = ll.IRBuilder(entry)
         self.func    = func
         self.builder = builder
         self.funcs.append(func)
 
         # Add function argument to symblol table.
         # And emit function prologue.
-        for i, (name, tyname) in enumerate(zip(node.argnames, node.defaults)):
+        for i, (name, tyname) in enumerate(zip(node.args.args, node.args.defaults)):
 
-            ty = typer.isNameOfFirstClassType(tyname.name)
+            ty = typer.isNameOfFirstClassType(tyname.id)
 
             bufSym = symbolTable.genUniqueSymbol(ty)
 
@@ -192,20 +195,23 @@ class CodeGenLLVM:
             #     tmpSym     = symbolTable.genUniqueSymbol(ty)
             #     loadInst   = self.builder.load(func.args[i], tmpSym.name)
             #     storeInst  = self.builder.store(loadInst, allocaInst)
-            #     symbolTable.append(Symbol(name, ty, "variable", llstorage=allocaInst))
+            #     symbolTable.append(Symbol(name.arg, ty, "variable", llstorage=allocaInst))
             # else:
             #     # %name.buf = alloca ty
             #     # store val, %name.buf
             #     allocaInst = self.builder.alloca(llTy, bufSym.name)
             #     storeInst  = self.builder.store(func.args[i], allocaInst)
-            #     symbolTable.append(Symbol(name, ty, "variable", llstorage=allocaInst))
+            #     symbolTable.append(Symbol(name.arg, ty, "variable", llstorage=allocaInst))
             # %name.buf = alloca ty
             # store val, %name.buf
             allocaInst = self.builder.alloca(llTy, bufSym.name)
             storeInst  = self.builder.store(func.args[i], allocaInst)
-            symbolTable.append(Symbol(name, ty, "variable", llstorage=allocaInst))
+            symbolTable.append(Symbol(name.arg, ty, "variable", llstorage=allocaInst))
 
-        self.visit(node.code)
+        for stmt in node.body:
+            if isinstance(stmt, ast.AST):
+                self.visit(stmt)
+        '''
         symbolTable.popScope()
 
         # Discard llvm code except for return type 
@@ -217,16 +223,16 @@ class CodeGenLLVM:
         retLLVMTy    = toLLVMTy(self.currFuncRetType)
         func         = self.mkFunctionSignature(retLLVMTy, node)
         entry        = func.append_basic_block("entry")
-        builder      = llvm.core.Builder.new(entry)
+        builder      = ll.IRBuilder(entry)
         self.func    = func
         self.builder = builder
         self.funcs.append(func)
 
         # Add function argument to symblol table.
         # And emit function prologue.
-        for i, (name, tyname) in enumerate(zip(node.argnames, node.defaults)):
+        for i, (name, tyname) in enumerate(zip(node.args.args, node.args.defaults)):
 
-            ty = typer.isNameOfFirstClassType(tyname.name)
+            ty = typer.isNameOfFirstClassType(tyname.id)
 
             bufSym = symbolTable.genUniqueSymbol(ty)
 
@@ -250,11 +256,14 @@ class CodeGenLLVM:
             #     symbolTable.append(Symbol(name, ty, "variable", llstorage=allocaInst))
             # %name.buf = alloca ty
             # store val, %name.buf
-            allocaInst = self.builder.alloca(llTy, bufSym.name)
+            allocaInst = self.builder.alloca(llTy, name=bufSym.name)
             storeInst  = self.builder.store(func.args[i], allocaInst)
             symbolTable.append(Symbol(name, ty, "variable", llstorage=allocaInst))
 
-        self.visit(node.code)
+        for stmt in node.body:
+            if isinstance(stmt, ast.AST):
+                self.visit(stmt)
+        '''
 
         if self.currFuncRetType is None:
             # Add ret void.
@@ -268,41 +277,44 @@ class CodeGenLLVM:
 
 
 
-    def visitStmt(self, node):
+    '''
+    # No Stmt in python3 ast
+    def visit_Stmt(self, node):
 
         for node in node.nodes:
 
             print("; [stmt]", node)
 
             self.visit(node)
+    '''
 
-    def visitAssign(self, node):
+    def visit_Assign(self, node):
 
-        if len(node.nodes) != 1:
-            raise Exception("TODO:", node)
+        if len(node.targets) != 1:
+            raise Exception("TODO:", ast.dump(node))
 
         print("; [Asgn]")
-        rTy     = typer.inferType(node.expr)
+        rTy     = typer.visit(node.value)
         print("; [Asgn]. rTy = ", rTy)
 
-        print("; [Asgn]. node.expr = ", node.expr)
-        rLLInst = self.visit(node.expr)
+        print("; [Asgn]. node.value = ", node.value)
+        rLLInst = self.visit(node.value)
         print("; [Asgn]. rhs = ", rLLInst)
 
-        lhsNode = node.nodes[0]
+        lhsNode = node.targets[0]
 
         lTy = None
-        if isinstance(lhsNode, compiler.ast.AssName):
+        if isinstance(lhsNode, ast.Name):
 
-            sym = symbolTable.find(lhsNode.name)
+            sym = symbolTable.find(lhsNode.id)
             if sym is None:
                 # The variable appears here firstly.
 
                 # alloc storage
                 llTy = toLLVMTy(rTy)
-                llStorage = self.builder.alloca(llTy, lhsNode.name) 
+                llStorage = self.builder.alloca(llTy, name=lhsNode.id)
 
-                sym = Symbol(lhsNode.name, rTy, "variable", llstorage = llStorage)
+                sym = Symbol(lhsNode.id, rTy, "variable", llstorage = llStorage)
                 symbolTable.append(sym)
                 print("; [Sym] New symbol added: ", sym)
 
@@ -315,20 +327,21 @@ class CodeGenLLVM:
 
 
         if rTy != lTy:
-            raise Exception("ERR: TypeMismatch: lTy = %s, rTy = %s: %s" % (lTy, rTy, node)) 
+            raise Exception("ERR: TypeMismatch: lTy = %s, rTy = %s: %s" % (lTy, rTy, ast.dump(node)))
 
-        lSym = symbolTable.find(lhsNode.name)
+        lSym = symbolTable.find(lhsNode.id)
 
         storeInst = self.builder.store(rLLInst, lSym.llstorage)
 
         print(";", storeInst)
 
-        print("; [Asgn]", node)
-        print("; [Asgn] nodes = ", node.nodes)
-        print("; [Asgn] expr  = ", node.expr)
+        print("; [Asgn]", ast.dump(node))
+        print("; [Asgn] nodes = ", node.targets)
+        print("; [Asgn] expr  = ", node.value)
 
         # No return
 
+    '''
     def visitIf(self, node):
 
         print("; ", node.tests)
@@ -431,18 +444,21 @@ class CodeGenLLVM:
             raise Exception("Unknown operator:", op)
 
         raise Exception("muda")
+    '''
 
-    def visitUnarySub(self, node):
+    def visit_UnaryOp(self, node):
 
-        ty       = typer.inferType(node.expr)
-        e        = self.visit(node.expr)
-        zeroInst = llvm.core.Constant.null(toLLVMTy(ty))
+        assert isinstance(node.op, ast.USub)
+        ty       = typer.visit(node.operand)
+        e        = self.visit(node.operand)
+        zeroInst = ll.Constant(toLLVMTy(ty), 0)
         tmpSym   = symbolTable.genUniqueSymbol(ty)
 
         subInst = self.builder.sub(zeroInst, e, tmpSym.name)
 
         return subInst
 
+    '''
     def visitGetattr(self, node):
 
         d = { 'x' : llvm.core.Constant.int(llIntType, 0)
@@ -467,88 +483,42 @@ class CodeGenLLVM:
             inst = self.builder.extract_element(rLLInst, d[s], tmpSym.name)
 
         return inst
-
+        '''
         
 
-    def visitAdd(self, node):
+    def visit_BinOp(self, node):
 
-        lTy = typer.inferType(node.left)
-        rTy = typer.inferType(node.right)
+        lTy = typer.visit(node.left)
+        rTy = typer.visit(node.right)
 
         if rTy != lTy:
-            raise Exception("ERR: TypeMismatch: lTy = %s, rTy = %s for %s, line %d" % (lTy, rTy, node, node.lineno))
+            raise Exception("ERR: TypeMismatch: lTy = %s, rTy = %s for %s, line %d" % (lTy, rTy, ast.dump(node), node.lineno))
 
         lLLInst = self.visit(node.left)
         rLLInst = self.visit(node.right)
         
         tmpSym = symbolTable.genUniqueSymbol(lTy)
 
-        addInst = self.builder.add(lLLInst, rLLInst, tmpSym.name)
-        print("; [AddOp] inst = ", addInst)
+        if isinstance(node.op, ast.Add):
+            inst = self.builder.add(lLLInst, rLLInst, tmpSym.name)
+            print("; [AddOp] inst = ", inst)
+        elif isinstance(node.op, ast.Sub):
+            inst = self.builder.sub(lLLInst, rLLInst, tmpSym.name)
+            print("; [SubOp] inst = ", inst)
+        elif isinstance(node.op, ast.Mul):
+            inst = self.builder.mul(lLLInst, rLLInst, tmpSym.name)
+            print("; [MulOp] inst = ", inst)
+        elif isinstance(node.op, ast.Div):
+            if typer.isFloatType(lTy):
+                inst = self.builder.fdiv(lLLInst, rLLInst, tmpSym.name)
+            else:
+                raise Exception("TODO: div for type: ", lTy)
 
-        return addInst
+            print("; [DIvOp] inst = ", inst)
 
-    def visitSub(self, node):
+        return inst
 
-        lTy = typer.inferType(node.left)
-        rTy = typer.inferType(node.right)
-
-        if rTy != lTy:
-            raise Exception("ERR: TypeMismatch: lTy = %s, rTy = %s for %s, line %d" % (lTy, rTy, node, node.lineno))
-
-        lLLInst = self.visit(node.left)
-        rLLInst = self.visit(node.right)
-        
-        tmpSym = symbolTable.genUniqueSymbol(lTy)
-
-        subInst = self.builder.sub(lLLInst, rLLInst, tmpSym.name)
-        print("; [SubOp] inst = ", subInst)
-
-        return subInst
-
-
-    def visitMul(self, node):
-
-        lTy = typer.inferType(node.left)
-        rTy = typer.inferType(node.right)
-
-        if rTy != lTy:
-            raise Exception("ERR: TypeMismatch: lTy = %s, rTy = %s for %s, line %d" % (lTy, rTy, node, node.lineno))
-
-        lLLInst = self.visit(node.left)
-        rLLInst = self.visit(node.right)
-        
-        tmpSym = symbolTable.genUniqueSymbol(lTy)
-
-        mulInst = self.builder.mul(lLLInst, rLLInst, tmpSym.name)
-        print("; [MulOp] inst = ", mulInst)
-
-        return mulInst
-
-
-    def visitDiv(self, node):
-
-        lTy = typer.inferType(node.left)
-        rTy = typer.inferType(node.right)
-
-        if rTy != lTy:
-            raise Exception("ERR: TypeMismatch: lTy = %s, rTy = %s for %s, line %d" % (lTy, rTy, node, node.lineno))
-
-        lLLInst = self.visit(node.left)
-        rLLInst = self.visit(node.right)
-        
-        tmpSym = symbolTable.genUniqueSymbol(lTy)
-
-        if typer.isFloatType(lTy):
-            divInst = self.builder.fdiv(lLLInst, rLLInst, tmpSym.name)
-        else:
-            raise Exception("TODO: div for type: ", lTy)
-
-        print("; [DIvOp] inst = ", divInst)
-
-        return divInst
-
-
+    '''
     def handleInitializeTypeCall(self, ty, args):
 
         llty = toLLVMTy(ty)
@@ -586,16 +556,24 @@ class CodeGenLLVM:
 
         self.builder.call
         f3 = self.builder.call(func, [e3], ftmp3.name)
+    '''
         
-    def visitCallFunc(self, node):
+    def visit_Call(self, node):
 
-        assert isinstance(node.node, compiler.ast.Name)
+        assert isinstance(node.func, ast.Name)
 
-        print("; callfunc", node.args)
+        print("; callfunc", ast.dump(node.args))
 
         args = [self.visit(a) for a in node.args]
 
         print("; callfuncafter", args)
+
+        print("; Call ", ast.dump(node))
+        print("; Call func ", node.func.id)
+
+        '''
+
+        print("; callfunc", node.args)
 
         ty = typer.isNameOfFirstClassType(node.node.name)
         print("; callfuncafter: ty = ", ty)
@@ -639,18 +617,19 @@ class CodeGenLLVM:
         # emit call 
         tmp  = symbolTable.genUniqueSymbol(vec)
         return self.builder.call(funcSig.llstorage, args, tmp.name)
+        '''
 
 
-    def visitList(self, node):
+    def visit_List(self, node):
 
-        return [self.visit(a) for a in node.nodes]
+        return [self.visit(a) for a in node.elts]
 
     #
     # Leaf
     #
-    def visitName(self, node):
+    def visit_Name(self, node):
 
-        sym = symbolTable.lookup(node.name) 
+        sym = symbolTable.lookup(node.id)
 
         tmpSym = symbolTable.genUniqueSymbol(sym.type)
 
@@ -661,7 +640,8 @@ class CodeGenLLVM:
         print("; [Leaf] inst = ", loadInst)
         return loadInst
 
-
+    '''
+    # No Discard in python3 ast
     def visitDiscard(self, node):
 
         self.visit(node.expr)
@@ -669,6 +649,7 @@ class CodeGenLLVM:
         #
         # return None
         #
+    '''
 
 
     def mkLLConstInst(self, ty, value):
@@ -684,14 +665,14 @@ class CodeGenLLVM:
         # store ty val, %tmp
         # %inst = load ty, %tmp
 
-        allocInst = self.builder.alloca(llTy, bufSym.name)
+        allocInst = self.builder.alloca(llTy, name=bufSym.name)
 
         llConst   = None
         if llTy   == llIntType:
-            llConst = llvm.core.Constant.int(llIntType, value)
+            llConst = ll.Constant(llIntType, value)
     
         elif llTy == llFloatType:
-            llConst = llvm.core.Constant.real(llFloatType, value)
+            llConst = ll.Constant(llFloatType, value)
 
         elif llTy == llFVec4Type:
             print(";", value)
@@ -704,29 +685,29 @@ class CodeGenLLVM:
 
         return loadInst
 
-    def visitConst(self, node):
+    def visit_Constant(self, node):
         
-        ty = typer.inferType(node)
+        ty = typer.visit(node)
 
         return self.mkLLConstInst(ty, node.value)
 
     def emitCommonHeader(self):
 
         s = """
-define <4xfloat> @vsel(<4xfloat> %a, <4xfloat> %b, <4xi32> %mask) {
+define <4 x float> @vsel(<4 x float> %a, <4 x float> %b, <4 x i32> %mask) {
 entry:
-    %a.i     = bitcast <4xfloat> %a to <4xi32>
-    %b.i     = bitcast <4xfloat> %b to <4xi32>
-    %tmp0    = and <4xi32> %b.i, %mask
-    %tmp.addr = alloca <4xi32>
-    store <4xi32> <i32 -1, i32 -1, i32 -1, i32 -1>, <4xi32>* %tmp.addr
-    %allone  = load <4xi32>* %tmp.addr
-    %invmask = xor <4xi32> %allone, %mask
-    %tmp1    = and <4xi32> %a.i, %invmask
-    %tmp2    = or <4xi32> %tmp0, %tmp1
-    %r       = bitcast <4xi32> %tmp2 to <4xfloat>
+    %a.i     = bitcast <4 x float> %a to <4 x i32>
+    %b.i     = bitcast <4 x float> %b to <4 x i32>
+    %tmp0    = and <4 x i32> %b.i, %mask
+    %tmp.addr = alloca <4 x i32>
+    store <4 x i32> <i32 -1, i32 -1, i32 -1, i32 -1>, <4 x i32>* %tmp.addr
+    %allone  = load <4 x i32>, <4 x i32>* %tmp.addr
+    %invmask = xor <4 x i32> %allone, %mask
+    %tmp1    = and <4 x i32> %a.i, %invmask
+    %tmp2    = or <4 x i32> %tmp0, %tmp1
+    %r       = bitcast <4 x i32> %tmp2 to <4 x float>
 
-    ret <4xfloat> %r
+    ret <4 x float> %r
 }
 
 """
@@ -742,24 +723,26 @@ entry:
             , 'expf'   : ( llFloatType, [llFloatType] )
             , 'logf'   : ( llFloatType, [llFloatType] )
             , 'sqrtf'  : ( llFloatType, [llFloatType] )
-            , 'vsel'   : ( llFVec4Type, [llFVec4Type, llFVec4Type, llIVec4Type] )
+            # Don't declare vsel since it causes duplicated definition error
+            # , 'vsel'   : ( llFVec4Type, [llFVec4Type, llFVec4Type, llIVec4Type] )
             }
 
         for k, v in d.items():
-            fty = llvm.core.Type.function(v[0], v[1])
-            f   = llvm.core.Function.new(self.module, fty, k)
+            fty = ll.FunctionType(v[0], v[1])
+            f   = ll.Function(self.module, fty, k)
 
             self.externals[k] = f
 
+    '''
     def getExternalSymbolInstruction(self, name):
 
-        if self.externals.has_key(name):
+        if name in self.externals:
             return self.externals[name]
         else:
             raise Exception("Unknown external symbol:", name, self.externals)
 
     def isExternalSymbol(self, name):
-        if self.externals.has_key(name):
+        if name in self.externals:
             return True
         else:
             return False
@@ -775,7 +758,7 @@ entry:
             , 'vsqrt' : 'sqrtf'
             }
 
-        if d.has_key(name):
+        if name in d:
             return (True, d[name])
         else:
             return False
@@ -832,6 +815,7 @@ entry:
     def emitVAbs(self, llargs):
 
         return self.emitVMath("fabsf", llargs)
+    '''
         
 
 def _test():
@@ -845,11 +829,12 @@ def main():
     if len(sys.argv) < 2:
         _test()
 
-    ast = compiler.parseFile(sys.argv[1])
-    # print(ast)
+    r = open(sys.argv[1], 'r')
+    mod = ast.parse(r.read())
+    # print(ast.dump(mod))
 
-    compiler.walk(ast, CodeGenLLVM())
-
+    codegen = CodeGenLLVM()
+    codegen.visit(mod)
 
 if __name__ == '__main__':
     main()
