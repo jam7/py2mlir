@@ -30,6 +30,7 @@ class TypeInference(ast.NodeVisitor):
             , 'float'  : float
             , 'void'   : void
             , 'string' : str
+            , 'list'   : list
             }
 
         self.typeDic.update(GetMUDATypeDic())    # register MUDA type
@@ -158,12 +159,12 @@ class TypeInference(ast.NodeVisitor):
 
         assert isinstance(node.func, ast.Name)
 
-        print("; => CalFunc:", ast.dump(node))
+        print("// => CalFunc:", ast.dump(node))
 
         # Intrinsic function?
         f = self.getIntrinsicFunctionFromName(node.func.id)
         if f is not None:
-            print("; => Intrinsic:", f)
+            print("// => Intrinsic:", f)
             return f[0]
 
         
@@ -181,8 +182,8 @@ class TypeInference(ast.NodeVisitor):
         right = self.visit(node.right)
 
         if left != right:
-            print("; [type inference] Type mismatch found at line %d: left = %s, right = %s" % (node.lineno, left, right))
-            print(";                 node = %s" % ast.dump(node))
+            print("// [type inference] Type mismatch found at line %d: left = %s, right = %s" % (node.lineno, left, right))
+            print("//                 node = %s" % ast.dump(node))
             return None
 
         return left
@@ -212,7 +213,7 @@ class TypeInference(ast.NodeVisitor):
 
         # Firstly, name of type?
         if name in self.typeDic:
-            print("; => found type for ", name)
+            print("// => found type for ", name)
             return self.typeDic[name]
 
         # Next, lookup symbol from the symbol table.
@@ -220,7 +221,7 @@ class TypeInference(ast.NodeVisitor):
         if sym is not None:
             return sym.type
 
-        print("; => not found. name=", name)
+        print("// => not found. name=", name)
         return None
 
 

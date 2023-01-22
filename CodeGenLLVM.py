@@ -4,7 +4,9 @@ import os, sys
 import re
 import ast
 
-import llvmlite.ir as ll
+import mlir
+import mlir.ir as ir
+from mlir.dialects import func, arith, scf, memref
 
 # from VecTypes import *
 from MUDA import *
@@ -12,28 +14,31 @@ from TypeInference import *
 from SymbolTable import *
 
 
-symbolTable    = SymbolTable() 
+symbolTable    = SymbolTable()
 typer          = TypeInference(symbolTable)
 
-llVoidType     = ll.VoidType()
-llIntType      = ll.IntType(32)
-llFloatType    = ll.FloatType()
-llFVec4Type    = ll.VectorType(llFloatType, 4)
-llFVec4PtrType = ll.PointerType(llFVec4Type)
-llIVec4Type    = ll.VectorType(llIntType, 4)
+ctx = ir.Context()
+with ctx:
+    i32 = ir.IntegerType.get_signless(32)
+    f32 = ir.F32Type.get()
+    '''
+    llFVec4Type    = ll.VectorType(f32, 4)
+    llFVec4PtrType = ll.PointerType(llFVec4Type)
+    llIVec4Type    = ll.VectorType(i32, 4)
+    '''
 
 def toLLVMTy(ty):
 
-    floatTy = ll.FloatType()
-
     if ty is None:
-        return llVoidType
+        return None
 
     d = {
-          float : llFloatType
-        , int   : llIntType
-        , vec   : llFVec4Type
-        , void  : llVoidType
+          float : f32
+        , int   : i32
+        , void  : None
+        # , list  : list
+        # , vec   : llFVec4Type
+        # , void  : llVoidType
         # str   : TODO
         }
 
@@ -41,51 +46,10 @@ def toLLVMTy(ty):
         return d[ty]
 
     raise Exception("Unknown type:", ty)
-        
-        
-
-class DummyIRBuilder:
-    """
-    Dummy IR Builder to ignore all requests.
-
-    py2llvm performs type inference and decide the type of return value.
-    In order to do that, py2llvm requires two passes.  1st pass to infer
-    return type.  2nd pass to generate code.  This dummy IR builder is
-    used in this 1st pass.
-    """
-
-    def ret_void(self):
-        return 'dummyIR'
-    def ret(self, *args, **kwargs):
-        return 'dummyIR'
-    def alloca(self, *args, **kwargs):
-        return 'dummyIR'
-    def load(self, *args, **kwargs):
-        return 'dummyIR'
-    def store(self, *args, **kwargs):
-        return 'dummyIR'
-    def add(self, *args, **kwargs):
-        return 'dummyIR'
-    def sub(self, *args, **kwargs):
-        return 'dummyIR'
-    def mul(self, *args, **kwargs):
-        return 'dummyIR'
-    def fdiv(self, *args, **kwargs):
-        return 'dummyIR'
-    def call(self, *args, **kwargs):
-        return 'dummyIR'
-    def fcmp(self, *args, **kwargs):
-        return 'dummyIR'
-    def sext(self, *args, **kwargs):
-        return 'dummyIR'
-    def insert_element(self, *args, **kwargs):
-        return 'dummyIR'
-    def extract_element(self, *args, **kwargs):
-        return 'dummyIR'
 
 class CodeGenLLVM(ast.NodeVisitor):
     """
-    LLVM CodeGen class 
+    LLVM CodeGen class
     """
 
     def __init__(self):
@@ -93,10 +57,15 @@ class CodeGenLLVM(ast.NodeVisitor):
         self.body             = ""
         self.globalscope      = ""
 
-        self.module           = ll.Module("module")
+        self.ctx = ctx
+
+        with self.ctx, ir.Location.unknown():
+          module = ir.Module.create()
+
+        self.module           = module
         self.funcs            = []
-        self.func             = None # Current function
-        self.builder          = None
+        self.func_op          = None # Current function
+        self.bb               = None
 
         self.currFuncRetType  = None
         self.prevFuncRetNode  = None    # for reporiting err
@@ -115,199 +84,176 @@ class CodeGenLLVM(ast.NodeVisitor):
         print(self.module)  # Output LLVM code to stdout.
         print(self.emitCommonHeader())
 
-
-    '''
-    # No Print and Printnl in python3 ast
-    def visit_Print(self, node):
-        return None # Discard
-
-    def visitPrintnl(self, node):
-        return None # Discard
-    '''
-
+    def genReturnNone(self, node):
+        assert self.currFuncRetType == void
+        self.prevFuncRetNode = node
+        with self.ctx, ir.InsertionPoint(self.bb), ir.Location.unknown():
+            ret_op = func.ReturnOp([])
+        return ret_op
 
     def visit_Return(self, node):
 
-        ty   = typer.visit(node.value)
-        print("; Return ty = ", ty)
+        assert self.currFuncRetType is not None
+        print("// Return input", ast.dump(node))
+
+        # Return(None)
+        if node.value is None:
+            return self.genReturnNone(node)
 
         # Return(Const(None))
-        if isinstance(node.value, ast.NameConstant):
-            if node.value.value == None:
-                self.currFuncRetType = void
-                self.prevFuncRetNode = node
-                return self.builder.ret_void()
-                
+        if isinstance(node.value, ast.NameConstant) and node.value.value is None:
+            return self.genReturnNone(node)
+
+        ty   = typer.visit(node.value)
+        print("// Return ty = ", ty)
+
         expr = self.visit(node.value)
 
-        if self.currFuncRetType is None:
-            self.currFuncRetType = ty
-            self.prevFuncRetNode = node
-
-        elif self.currFuncRetType != ty:
+        if self.currFuncRetType != ty:
             raise Exception("Different type for return expression: expected %s(lineno=%d, %s) but got %s(lineno=%d, %s)" % (self.currFuncRetType, self.prevFuncRetNode.lineno, self.prevFuncRetNode, ty, node.lineno, ast.dump(node)))
 
-        return self.builder.ret(expr)
+        with self.ctx, ir.InsertionPoint(self.bb), ir.Location.unknown():
+            ret_op = func.ReturnOp([expr])
+        return ret_op
 
     def mkFunctionSignature(self, retTy, node):
 
-        # Argument should have default value which represents type of argument.
-        if len(node.args.args) != len(node.args.defaults):
-            raise Exception("Function argument should have default values which represents type of the argument:", node)
+        # All arguments must have type hinting information.
+        for arg in node.args.args:
+            assert arg.annotation is not None
 
         argLLTys = []
 
-        for (name, tyname) in zip(node.args.args, node.args.defaults):
+        for arg in node.args.args:
+            assert isinstance(arg.annotation, ast.Name)
 
-            assert isinstance(tyname, ast.Name)
-
-            ty = typer.isNameOfFirstClassType(tyname.id)
+            ty = typer.isNameOfFirstClassType(arg.annotation.id)
             if ty is None:
-                raise Exception("Unknown name of type:", tyname.id)
+                raise Exception("Unknown name of type:", arg.annotation.id)
 
             llTy = toLLVMTy(ty)
-            
-            # vector argument is passed by pointer.
-            # if llTy == llFVec4Type:
-            #     llTy = llFVec4PtrType
-
             argLLTys.append(llTy)
 
-        funcLLVMTy = ll.FunctionType(retTy, argLLTys)
-        func = ll.Function(self.module, funcLLVMTy, node.name)
+        retLLTys = []
+        if retTy is not None:
+            retLLTys.append(retTy)
+
+        # funcLLVMTy = ll.FunctionType(retTy, argLLTys)
+        # func = ll.Function(self.module, funcLLVMTy, node.name)
+        with self.ctx, ir.Location.unknown(), ir.InsertionPoint(self.module.body):
+            func_op = func.FuncOp(node.name, (argLLTys, retLLTys))
+
+        '''
+        # In MLIR, it looks like assigning name to value is not possible.
 
         # Assign name for each arg
         for i, name in enumerate(node.args.args):
 
             # if llTy == llFVec4Type:
             #     argname = name + "_p"
-            # else: 
+            # else:
             #     argname = name
             argname = name.arg
 
-            func.args[i].name = argname
+            func_op.args[i].name = argname
+        '''
 
+        return func_op
 
-        return func
-        
     def visit_FunctionDef(self, node):
 
         """
-        Perform 2 passes to translate python function ot LLVM IR.
-        1st pass parse python function to infer a return type.
-        2nd pass parse python function and translate it to LLVM IR.
-
-        Original implementation was translating python twice and
-        discarding first result.  However, llvmlite doesn't have
-        such discarding mechanism, so I create dummyIRBuilder to
-        ignore all requests and use it in 1st pass.
+        Generate FunctionType using python type hinting information.
         """
 
         # init
-        self.currFuncRetType = None 
-        
+        if node.returns is None:
+            raise Exception("Type hinting of return type is required:", ast.dump(node))
 
-        symbolTable.pushScope(node.name)
-        retLLVMTy    = llVoidType # Dummy
-        builder      = DummyIRBuilder()
-        self.builder = builder
-
-        # Add function argument to symblol table.
-        # And emit function prologue.
-        for i, (name, tyname) in enumerate(zip(node.args.args, node.args.defaults)):
-
-            ty = typer.isNameOfFirstClassType(tyname.id)
-
-            bufSym = symbolTable.genUniqueSymbol(ty)
-
-            symbolTable.append(Symbol(name.arg, ty, "variable", llstorage=None))
-
-        for stmt in node.body:
-            if isinstance(stmt, ast.AST):
-                self.visit(stmt)
-        symbolTable.popScope()
+        ty = typer.visit(node.returns)
+        self.currFuncRetType = ty
 
         symbolTable.pushScope(node.name)
         retLLVMTy    = toLLVMTy(self.currFuncRetType)
-        func         = self.mkFunctionSignature(retLLVMTy, node)
-        entry        = func.append_basic_block("entry")
-        builder      = ll.IRBuilder(entry)
-        self.func    = func
-        self.builder = builder
-        self.funcs.append(func)
+        func_op      = self.mkFunctionSignature(retLLVMTy, node)
+        entry        = func_op.add_entry_block()
+        self.func_op = func_op
+        self.bb = entry
+        self.funcs.append(func_op)
 
-        # Add function argument to symblol table.
-        # And emit function prologue.
-        for i, (name, tyname) in enumerate(zip(node.args.args, node.args.defaults)):
+        '''
+        # In future, try to use this value link to reduce the amount of
+        # load/store...
 
-            ty = typer.isNameOfFirstClassType(tyname.id)
+        # Add value of each function argument to symblol table.  The value
+        # is registered as entry block's arguments.
+        #   "func.func"() ({
+        #   ^bb0(%arg0: i32):
+        #   }) {function_type = (i32) -> i32, sym_name = "test"} : () -> ()
+        for i, (arg, value) in enumerate(zip(node.args.args, entry.arguments)):
+            assert isinstance(value, ir.Value)
+            assert isinstance(arg.annotation, ast.Name)
 
-            bufSym = symbolTable.genUniqueSymbol(ty)
-
+            ty = typer.isNameOfFirstClassType(arg.annotation.id)
             llTy = toLLVMTy(ty)
 
-            # if llTy == llFVec4Type:
-            #     # %name.buf = alloca ty
-            #     # %tmp = load %arg
-            #     # store %tmp, %name.buf
-            #     allocaInst = self.builder.alloca(llTy, bufSym.name)
-            #     pTy = llFVec4PtrType
-            #     tmpSym     = symbolTable.genUniqueSymbol(ty)
-            #     loadInst   = self.builder.load(func.args[i], tmpSym.name)
-            #     storeInst  = self.builder.store(loadInst, allocaInst)
-            #     symbolTable.append(Symbol(name, ty, "variable", llstorage=allocaInst))
-            # else:
-            #     # %name.buf = alloca ty
-            #     # store val, %name.buf
-            #     allocaInst = self.builder.alloca(llTy, bufSym.name)
-            #     storeInst  = self.builder.store(func.args[i], allocaInst)
-            #     symbolTable.append(Symbol(name, ty, "variable", llstorage=allocaInst))
-            # %name.buf = alloca ty
-            # store val, %name.buf
-            allocaInst = self.builder.alloca(llTy, name=bufSym.name)
-            storeInst  = self.builder.store(func.args[i], allocaInst)
-            symbolTable.append(Symbol(name.arg, ty, "variable", llstorage=allocaInst))
+            symbolTable.append(Symbol(arg.arg, ty, "variable", value=value))
+        '''
+
+        # Add function argument to symblol table.  Allocate memory and
+        # store all values of arguments there.  The values of arguments
+        # are implemented as entry block's arguments like below.
+        #   "func.func"() ({
+        #   ^bb0(%arg0: i32):
+        #   }) {function_type = (i32) -> i32, sym_name = "test"} : () -> ()
+        for i, (arg, value) in enumerate(zip(node.args.args, entry.arguments)):
+            assert isinstance(value, ir.Value)
+            assert isinstance(arg.annotation, ast.Name)
+
+            ty = typer.isNameOfFirstClassType(arg.annotation.id)
+            bufSym = symbolTable.genUniqueSymbol(ty)
+            llTy = toLLVMTy(ty)
+
+            with self.ctx, ir.InsertionPoint(self.bb), ir.Location.unknown():
+                # Store all arguments in memref<llTy>.
+                memref_ty = ir.MemRefType.get([], llTy)
+                alloca_op = memref.AllocaOp(memref_ty, [], [])
+                store_op = memref.StoreOp(value, alloca_op, [])
+
+            symbolTable.append(Symbol(arg.arg, ty, "variable", llstorage=alloca_op))
 
         for stmt in node.body:
             if isinstance(stmt, ast.AST):
                 self.visit(stmt)
 
+        '''
         if self.currFuncRetType is None:
             # Add ret void.
             self.builder.ret_void()
             self.currFuncRetType = void
+        '''
 
         symbolTable.popScope()
 
         # Register function to symbol table
         symbolTable.append(Symbol(node.name, self.currFuncRetType, "function", llstorage=func))
 
-
-
-    '''
-    # No Stmt in python3 ast
-    def visit_Stmt(self, node):
-
-        for node in node.nodes:
-
-            print("; [stmt]", node)
-
-            self.visit(node)
-    '''
-
     def visit_Assign(self, node):
 
-        if len(node.targets) != 1:
+        if len(node.targets) != 1 or isinstance(node.targets[0], ast.Tuple):
             raise Exception("TODO:", ast.dump(node))
 
-        print("; [Asgn]")
+        print("// [Asgn]", ast.dump(node))
         rTy     = typer.visit(node.value)
-        print("; [Asgn]. rTy = ", rTy)
+        print("// [Asgn]. rTy = ", rTy)
 
-        print("; [Asgn]. node.value = ", node.value)
+        print("// [Asgn]. node.value = ", node.value)
         rLLInst = self.visit(node.value)
-        print("; [Asgn]. rhs = ", rLLInst)
+        print("// [Asgn]. rhs = ", rLLInst)
 
+        # We uses only values at this moment.
+        # TODO: Support stack access to use local variables.  Need to learn
+        #       memref.
         lhsNode = node.targets[0]
 
         lTy = None
@@ -316,14 +262,15 @@ class CodeGenLLVM(ast.NodeVisitor):
             sym = symbolTable.find(lhsNode.id)
             if sym is None:
                 # The variable appears here firstly.
+                with self.ctx, ir.InsertionPoint(self.bb), ir.Location.unknown():
+                    # alloc storage
+                    llTy = toLLVMTy(rTy)
+                    memref_ty = ir.MemRefType.get([], llTy)
+                    alloca_op = memref.AllocaOp(memref_ty, [], [])
 
-                # alloc storage
-                llTy = toLLVMTy(rTy)
-                llStorage = self.builder.alloca(llTy, name=lhsNode.id)
-
-                sym = Symbol(lhsNode.id, rTy, "variable", llstorage = llStorage)
+                sym = Symbol(lhsNode.id, rTy, "variable", llstorage = alloca_op)
                 symbolTable.append(sym)
-                print("; [Sym] New symbol added: ", sym)
+                print("// [Sym] New symbol added: ", sym)
 
                 lTy = rTy
 
@@ -331,28 +278,26 @@ class CodeGenLLVM(ast.NodeVisitor):
                 # symbol is already defined.
                 lTy = sym.type
 
-
-
         if rTy != lTy:
             raise Exception("ERR: TypeMismatch: lTy = %s, rTy = %s: %s" % (lTy, rTy, ast.dump(node)))
 
         lSym = symbolTable.find(lhsNode.id)
 
-        storeInst = self.builder.store(rLLInst, lSym.llstorage)
+        with self.ctx, ir.InsertionPoint(self.bb), ir.Location.unknown():
+            store_op = memref.StoreOp(rLLInst, lSym.llstorage, [])
+        print("//", store_op)
 
-        print(";", storeInst)
-
-        print("; [Asgn]", ast.dump(node))
-        print("; [Asgn] nodes = ", node.targets)
-        print("; [Asgn] expr  = ", node.value)
+        print("// [Asgn]", ast.dump(node))
+        print("// [Asgn] nodes = ", node.targets)
+        print("// [Asgn] expr  = ", node.value)
 
         # No return
 
     '''
     def visitIf(self, node):
 
-        print("; ", node.tests)
-        print("; ", node.else_)
+        print("// ", node.tests)
+        print("// ", node.else_)
 
         raise Exception("muda")
 
@@ -426,8 +371,8 @@ class CodeGenLLVM(ast.NodeVisitor):
 
     def visitCompare(self, node):
 
-        print("; ", node.expr)
-        print("; ", node.ops[0])
+        print("// ", node.expr)
+        print("// ", node.ops[0])
 
         lTy = typer.inferType(node.expr)
         rTy = typer.inferType(node.ops[0][1])
@@ -476,9 +421,9 @@ class CodeGenLLVM(ast.NodeVisitor):
 
 
         ty = typer.inferType(node)
-        print("; getattr: expr", node.expr)
-        print("; getattr: attrname", node.attrname)
-        print("; getattr: ty", ty)
+        print("// getattr: expr", node.expr)
+        print("// getattr: attrname", node.attrname)
+        print("// getattr: ty", ty)
 
         rLLInst  = self.visit(node.expr)
         tmpSym   = symbolTable.genUniqueSymbol(ty)
@@ -491,7 +436,6 @@ class CodeGenLLVM(ast.NodeVisitor):
 
         return inst
         '''
-        
 
     def visit_BinOp(self, node):
 
@@ -503,25 +447,35 @@ class CodeGenLLVM(ast.NodeVisitor):
 
         lLLInst = self.visit(node.left)
         rLLInst = self.visit(node.right)
-        
+
         tmpSym = symbolTable.genUniqueSymbol(lTy)
 
-        if isinstance(node.op, ast.Add):
-            inst = self.builder.add(lLLInst, rLLInst, tmpSym.name)
-            print("; [AddOp] inst = ", inst)
-        elif isinstance(node.op, ast.Sub):
-            inst = self.builder.sub(lLLInst, rLLInst, tmpSym.name)
-            print("; [SubOp] inst = ", inst)
-        elif isinstance(node.op, ast.Mul):
-            inst = self.builder.mul(lLLInst, rLLInst, tmpSym.name)
-            print("; [MulOp] inst = ", inst)
-        elif isinstance(node.op, ast.Div):
-            if typer.isFloatType(lTy):
-                inst = self.builder.fdiv(lLLInst, rLLInst, tmpSym.name)
-            else:
-                raise Exception("TODO: div for type: ", lTy)
+        with self.ctx, ir.InsertionPoint(self.bb), ir.Location.unknown():
+            if isinstance(node.op, ast.Add):
+                if typer.isFloatType(lTy):
+                    inst = arith.AddFOp(lLLInst, rLLInst)
+                else:
+                    inst = arith.AddIOp(lLLInst, rLLInst)
+                print("// [AddOp] inst = ", inst)
+            elif isinstance(node.op, ast.Sub):
+                if typer.isFloatType(lTy):
+                    inst = arith.SubFOp(lLLInst, rLLInst)
+                else:
+                    inst = arith.SubIOp(lLLInst, rLLInst)
+                print("// [SubOp] inst = ", inst)
+            elif isinstance(node.op, ast.Mul):
+                if typer.isFloatType(lTy):
+                    inst = arith.MulFOp(lLLInst, rLLInst)
+                else:
+                    inst = arith.MulIOp(lLLInst, rLLInst)
+                print("// [MulOp] inst = ", inst)
+            elif isinstance(node.op, ast.Div):
+                if typer.isFloatType(lTy):
+                    inst = arith.DivFOp(lLLInst, rLLInst)
+                else:
+                    raise Exception("TODO: div for type: ", lTy)
 
-            print("; [DIvOp] inst = ", inst)
+                print("// [DIvOp] inst = ", inst)
 
         return inst
 
@@ -564,26 +518,88 @@ class CodeGenLLVM(ast.NodeVisitor):
         self.builder.call
         f3 = self.builder.call(func, [e3], ftmp3.name)
     '''
-        
+
+    def visit_For(self, node):
+
+        # Support only "for iv = range(expr):" statement at this momemt.
+
+        # Check iv.
+        assert isinstance(node.target, ast.Name)
+        # Check range.
+        assert isinstance(node.iter, ast.Call)
+        assert isinstance(node.iter.func, ast.Name)
+        assert node.iter.func.id == 'range'
+
+        if len(node.iter.args) == 3:
+            lb_ty = typer.visit(node.iter.args[0])
+            lb = self.visit(node.iter.args[0])
+            ub_ty = typer.visit(node.iter.args[1])
+            ub = self.visit(node.iter.args[1])
+            step_ty = typer.visit(node.iter.args[2])
+            step = self.visit(node.iter.args[2])
+        elif len(node.iter.args) == 2:
+            lb_ty = typer.visit(node.iter.args[0])
+            lb = self.visit(node.iter.args[0])
+            ub_ty = typer.visit(node.iter.args[1])
+            ub = self.visit(node.iter.args[1])
+            step_ty = int
+            step = 1
+        else:
+            assert len(node.iter.args) == 1
+            lb, step = 0, 0
+            lb_ty, step_ty = int, int
+            ub_ty = typer.visit(node.iter.args[0])
+            ub = self.visit(node.iter.args[0])
+        assert lb_ty is int
+        assert ub_ty is int
+        assert step_ty is int
+        if isinstance(lb, int):
+            lb = self.mkLLConstInst(int, lb)
+        if isinstance(step, int):
+            step = self.mkLLConstInst(int, step)
+
+        # Cast all int to index
+        with self.ctx, ir.InsertionPoint(self.bb), ir.Location.unknown():
+            lb = arith.IndexCastOp(ir.IndexType.get(), lb)
+            ub = arith.IndexCastOp(ir.IndexType.get(), ub)
+            step = arith.IndexCastOp(ir.IndexType.get(), step)
+
+
+        with self.ctx, ir.InsertionPoint(self.bb), ir.Location.unknown():
+            for_op = scf.ForOp(lb, ub, step, iter_args = [])
+
+        oldbb = self.bb
+        self.bb = for_op.body
+        for stmt in node.body:
+            if isinstance(stmt, ast.AST):
+                self.visit(stmt)
+
+        with self.ctx, ir.InsertionPoint(self.bb), ir.Location.unknown():
+            scf.YieldOp([])
+
+        self.bb = oldbb
+
     def visit_Call(self, node):
 
         assert isinstance(node.func, ast.Name)
+        if node.func.id == "print":
+            return # ignore print function calls
 
-        print("; callfunc", ast.dump(node.args))
+        print("// callfunc", ast.dump(node))
 
         args = [self.visit(a) for a in node.args]
 
-        print("; callfuncafter", args)
+        print("// callfuncafter", args)
 
-        print("; Call ", ast.dump(node))
-        print("; Call func ", node.func.id)
+        print("// Call ", ast.dump(node))
+        print("// Call func ", node.func.id)
 
         '''
 
-        print("; callfunc", node.args)
+        print("// callfunc", node.args)
 
         ty = typer.isNameOfFirstClassType(node.node.name)
-        print("; callfuncafter: ty = ", ty)
+        print("// callfuncafter: ty = ", ty)
 
         #
         # value initialier? 
@@ -607,7 +623,7 @@ class CodeGenLLVM(ast.NodeVisitor):
             func = self.getExternalSymbolInstruction("vsel")
             tmp  = symbolTable.genUniqueSymbol(vec)
 
-            print("; ", args)
+            print("// ", args)
             c    = self.builder.call(func, args, tmp.name)
 
             return c
@@ -641,11 +657,16 @@ class CodeGenLLVM(ast.NodeVisitor):
         tmpSym = symbolTable.genUniqueSymbol(sym.type)
 
         # %tmp = load %name
+        with self.ctx, ir.InsertionPoint(self.bb), ir.Location.unknown():
+            # Store all arguments in memref<llTy>.
+            load_op = memref.LoadOp(sym.llstorage, [])
 
-        loadInst = self.builder.load(sym.llstorage, tmpSym.name)
-
-        print("; [Leaf] inst = ", loadInst)
-        return loadInst
+        print("// [Leaf] inst = ", load_op)
+        return load_op
+        '''
+        # Use MLIR's value (e.g. %arg0)
+        return sym.value
+        '''
 
     '''
     # No Discard in python3 ast
@@ -662,44 +683,38 @@ class CodeGenLLVM(ast.NodeVisitor):
     def mkLLConstInst(self, ty, value):
 
         # ty = typer.inferType(node)
-        # print("; [Typer] %s => %s" % (str(node), str(ty)))
+        # print("// [Typer] %s => %s" % (str(node), str(ty)))
 
         llTy   = toLLVMTy(ty)
         bufSym = symbolTable.genUniqueSymbol(ty)
         tmpSym = symbolTable.genUniqueSymbol(ty)
 
-        # %tmp  = alloca ty
-        # store ty val, %tmp
-        # %inst = load ty, %tmp
-
-        allocInst = self.builder.alloca(llTy, name=bufSym.name)
+        # %tmp = arith.constant val : ty
 
         llConst   = None
-        if llTy   == llIntType:
-            llConst = ll.Constant(llIntType, value)
-    
-        elif llTy == llFloatType:
-            llConst = ll.Constant(llFloatType, value)
+        with self.ctx:
+            with ir.InsertionPoint(self.bb), ir.Location.unknown():
+                if llTy == i32:
+                    val = ir.IntegerAttr.get(i32, value)
+                    llConst = arith.ConstantOp(value=val, result=i32)
+                elif llTy == f32:
+                    val = ir.FloatAttr.get(f32, value)
+                    llConst = arith.ConstantOp(value=val, result=f32)
+                else:
+                    print("//", value)
+                    raise Exception("not supported")
 
-        elif llTy == llFVec4Type:
-            print(";", value)
-            raise Exception("muda")
-    
-        storeInst = self.builder.store(llConst, allocInst)
-        loadInst  = self.builder.load(allocInst, tmpSym.name)
+        print("//", llConst)
 
-        print(";", loadInst)
-
-        return loadInst
+        return llConst
 
     def visit_Constant(self, node):
-        
         ty = typer.visit(node)
-
         return self.mkLLConstInst(ty, node.value)
 
     def emitCommonHeader(self):
 
+        '''
         s = """
 define <4 x float> @vsel(<4 x float> %a, <4 x float> %b, <4 x i32> %mask) {
 entry:
@@ -719,12 +734,15 @@ entry:
 
 """
         return s
+        '''
+        return ""
 
     #
     #
     #
     def emitExternalSymbols(self):
 
+        '''
         d = {
               'fabsf'  : ( llFloatType, [llFloatType] )
             , 'expf'   : ( llFloatType, [llFloatType] )
@@ -739,6 +757,7 @@ entry:
             f   = ll.Function(self.module, fty, k)
 
             self.externals[k] = f
+        '''
 
     '''
     def getExternalSymbolInstruction(self, name):
@@ -823,13 +842,11 @@ entry:
 
         return self.emitVMath("fabsf", llargs)
     '''
-        
 
 def _test():
     import doctest
     doctest.testmod()
     sys.exit()
-    
 
 def main():
 
