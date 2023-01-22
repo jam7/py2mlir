@@ -1,4 +1,4 @@
-py2llvm: A Python to LLVM translator
+py2mlir: A Python to MLIR translator
 ====================================
 
 Author: Kazushi Marukawa  
@@ -9,8 +9,8 @@ Requirements
 ============
 
   - python 3.8 or above
-  - LLVM 10.0
-  - llvmlite 0.39.1
+  - LLVM 15.0.7 (working on llvmorg-15.0.7 tag)
+    - MLIR python binding in llvm
 
 Status
 ======
@@ -21,7 +21,7 @@ Status
 How to use
 ==========
 
-  $ ./py2llvm <input.py>
+  $ ./py2mlir.py <input.py>
 
 Example
 =======
