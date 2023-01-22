@@ -26,6 +26,20 @@ How to use
 Example
 =======
 
+Tags
+====
+
+- 0.2: Updated py2llvm using llvmlite
+- 0.1: Original implementation described below
+
+0.2
+===
+
+Updated py2llvm using recent LLVM and llvmlite.
+
+  -  - LLVM 10.0
+  -  - llvmlite 0.39.1
+
 Original implementation
 =======================
 
