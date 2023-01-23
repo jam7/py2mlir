@@ -546,7 +546,7 @@ class CodeGenLLVM(ast.NodeVisitor):
             step = 1
         else:
             assert len(node.iter.args) == 1
-            lb, step = 0, 0
+            lb, step = 0, 1
             lb_ty, step_ty = int, int
             ub_ty = typer.visit(node.iter.args[0])
             ub = self.visit(node.iter.args[0])
