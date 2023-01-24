@@ -187,6 +187,11 @@ class TypeInference(ast.NodeVisitor):
         left  = self.visit(node.left)
         right = self.visit(node.right)
 
+        if left == float and right == int:
+            right = float
+        elif left == int and right == float:
+            left = float
+
         if left != right:
             print("// [type inference] Type mismatch found at line %d: left = %s, right = %s" % (node.lineno, left, right))
             print("//                 node = %s" % ast.dump(node))

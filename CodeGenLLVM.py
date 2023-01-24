@@ -117,7 +117,7 @@ class CodeGenLLVM(ast.NodeVisitor):
         expr = self.visit(node.value)
 
         if self.currFuncRetType != ty:
-            raise Exception("Different type for return expression: expected %s(lineno=%d, %s) but got %s(lineno=%d, %s)" % (self.currFuncRetType, self.prevFuncRetNode.lineno, self.prevFuncRetNode, ty, node.lineno, ast.dump(node)))
+            raise Exception("Different type for return expression: expected {}(lineno={}, {}) but got {}(lineno={}, {})".format(self.currFuncRetType, self.prevFuncRetNode.lineno, ast.dump(self.prevFuncRetNode), ty, node.lineno, ast.dump(node)))
 
         with self.ctx, ir.InsertionPoint(self.bb), ir.Location.unknown():
             ret_op = func.ReturnOp([expr])
@@ -187,6 +187,7 @@ class CodeGenLLVM(ast.NodeVisitor):
         self.func_op = func_op
         self.bb = entry
         self.funcs.append(func_op)
+        self.prevFuncRetNode = node
 
         '''
         # In future, try to use this value link to reduce the amount of
@@ -444,15 +445,28 @@ class CodeGenLLVM(ast.NodeVisitor):
         return inst
         '''
 
+    def perform_SIToFP(self, rhs):
+        with self.ctx, ir.InsertionPoint(self.bb), ir.Location.unknown():
+            inst = arith.SIToFPOp(f32, rhs)
+        return inst
+
     def visit_BinOp(self, node):
+        ty = typer.visit(node)
         lTy = typer.visit(node.left)
         rTy = typer.visit(node.right)
 
-        if rTy != lTy:
-            raise Exception("ERR: TypeMismatch: lTy = %s, rTy = %s for %s, line %d" % (lTy, rTy, ast.dump(node), node.lineno))
-
         lLLInst = self.visit(node.left)
         rLLInst = self.visit(node.right)
+
+        if ty == float and rTy == int:
+            rTy = ty
+            rLLInst = self.perform_SIToFP(rLLInst)
+        elif ty == float and lTy == int:
+            lTy = ty
+            lLLInst = self.perform_SIToFP(lLLInst)
+
+        if rTy != lTy:
+            raise Exception("ERR: TypeMismatch: lTy = %s, rTy = %s for %s, line %d" % (lTy, rTy, ast.dump(node), node.lineno))
 
         tmpSym = symbolTable.genUniqueSymbol(lTy)
 
