@@ -72,6 +72,13 @@ class CodeGenLLVM(ast.NodeVisitor):
 
         self.externals        = {}
 
+    def __del__(self):
+        # TODO: find better implementation
+        # Clear global symboltable to remove references to function operations
+        symbolTable = SymbolTable()
+        # Clear context too.
+        ctx = ir.Context()
+
     def visit_Module(self, node):
 
         # emitExternalSymbols() should be called before self.visit(node.node)
