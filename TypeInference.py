@@ -167,10 +167,13 @@ class TypeInference(ast.NodeVisitor):
             print("// => Intrinsic:", f)
             return f[0]
 
-        
-        raise Exception("TODO:", ast.dump(node))
-        return self.inferType(node.node)
+        # Next, lookup symbol from the symbol table.
+        sym = self.symbolTable.find(node.func.id)
+        if sym is not None:
+            return sym.type
 
+        print("// => not found. func.id=", node.func.id)
+        return None
 
     def visit_UnaryOp(self, node):
 

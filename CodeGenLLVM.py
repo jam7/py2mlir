@@ -236,7 +236,7 @@ class CodeGenLLVM(ast.NodeVisitor):
         symbolTable.popScope()
 
         # Register function to symbol table
-        symbolTable.append(Symbol(node.name, self.currFuncRetType, "function", llstorage=func))
+        symbolTable.append(Symbol(node.name, self.currFuncRetType, "function", value=func_op))
 
     def visit_Assign(self, node):
 
@@ -595,7 +595,6 @@ class CodeGenLLVM(ast.NodeVisitor):
         print("// Call func ", node.func.id)
 
         '''
-
         print("// callfunc", node.args)
 
         ty = typer.isNameOfFirstClassType(node.node.name)
@@ -627,21 +626,22 @@ class CodeGenLLVM(ast.NodeVisitor):
             c    = self.builder.call(func, args, tmp.name)
 
             return c
+        '''
             
         #
         # Defined in the source?
         #
-        ty      = typer.inferType(node.node)
-        funcSig = symbolTable.lookup(node.node.name)
+        ty      = typer.visit(node.func)
+        funcSig = symbolTable.lookup(node.func.id)
 
-        if funcSig.kind is not "function":
-            raise Exception("Symbol isn't registered as function:", node.node.name)
+        if funcSig.kind != "function":
+            raise Exception("Symbol isn't registered as function:", node.func.id)
 
-        # emit call 
-        tmp  = symbolTable.genUniqueSymbol(vec)
-        return self.builder.call(funcSig.llstorage, args, tmp.name)
-        '''
-
+        # MLIR requires func_op generated from func.FuncOp().
+        assert hasattr(funcSig, 'value')
+        with self.ctx, ir.Location.unknown(), ir.InsertionPoint(self.bb):
+            call_op = func.CallOp(funcSig.value, args)
+        return call_op
 
     def visit_List(self, node):
 
