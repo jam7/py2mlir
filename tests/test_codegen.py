@@ -59,3 +59,23 @@ class TestImport(unittest.TestCase):
   }
 }''' ,f.getvalue())
         del codegen
+
+    def test_simple_call(self):
+        mod = ast.parse('''def test() -> int:
+  return 2
+def test2() -> int:
+  return test()''')
+        codegen = CodeGenLLVM()
+        with redirect_stdout(io.StringIO()) as f:
+            codegen.visit(mod)
+        self.assertIn('''module {
+  func.func @test() -> i32 {
+    %c2_i32 = arith.constant 2 : i32
+    return %c2_i32 : i32
+  }
+  func.func @test2() -> i32 {
+    %0 = call @test() : () -> i32
+    return %0 : i32
+  }
+}''' ,f.getvalue())
+        del codegen
