@@ -11,6 +11,12 @@ class void(object):
     def __init__(self):
         pass
 
+class index(object):
+    """
+    Represents index type
+    """
+    def __init__(self):
+        pass
 
 class TypeInference(ast.NodeVisitor):
     """
@@ -31,6 +37,7 @@ class TypeInference(ast.NodeVisitor):
             , 'None'   : void
             , 'string' : str
             , 'list'   : list
+            , 'index'  : index
             }
 
         self.typeDic.update(GetMUDATypeDic())    # register MUDA type
@@ -190,6 +197,14 @@ class TypeInference(ast.NodeVisitor):
         if left == float and right == int:
             right = float
         elif left == int and right == float:
+            left = float
+        if left == int and right == index:
+            right = int
+        elif left == index and right == int:
+            left = int
+        elif left == float and right == index:
+            right = float
+        elif left == index and right == float:
             left = float
 
         if left != right:

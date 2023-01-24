@@ -450,6 +450,12 @@ class CodeGenLLVM(ast.NodeVisitor):
             inst = arith.SIToFPOp(f32, rhs)
         return inst
 
+    def perform_IndexCast(self, rhs):
+        # %2 = arith.index_cast %arg1 : index to i32
+        with self.ctx, ir.InsertionPoint(self.bb), ir.Location.unknown():
+            inst = arith.IndexCastOp(i32, rhs)
+        return inst
+
     def visit_BinOp(self, node):
         ty = typer.visit(node)
         lTy = typer.visit(node.left)
@@ -463,6 +469,20 @@ class CodeGenLLVM(ast.NodeVisitor):
             rLLInst = self.perform_SIToFP(rLLInst)
         elif ty == float and lTy == int:
             lTy = ty
+            lLLInst = self.perform_SIToFP(lLLInst)
+        elif ty == int and rTy == index:
+            rTy = ty
+            rLLInst = self.perform_IndexCast(rLLInst)
+        elif ty == int and lTy == index:
+            lTy = ty
+            lLLInst = self.perform_IndexCast(lLLInst)
+        elif ty == float and rTy == index:
+            rTy = float
+            rLLInst = self.perform_IndexCast(rLLInst)
+            rLLInst = self.perform_SIToFP(rLLInst)
+        elif ty == float and lTy == index:
+            lTy = ty
+            lLLInst = self.perform_IndexCast(lLLInst)
             lLLInst = self.perform_SIToFP(lLLInst)
 
         if rTy != lTy:
@@ -564,6 +584,7 @@ class CodeGenLLVM(ast.NodeVisitor):
 
         # Check iv.
         assert isinstance(node.target, ast.Name)
+
         # Check range.
         assert isinstance(node.iter, ast.Call)
         assert isinstance(node.iter.func, ast.Name)
@@ -603,9 +624,20 @@ class CodeGenLLVM(ast.NodeVisitor):
             ub = arith.IndexCastOp(ir.IndexType.get(), ub)
             step = arith.IndexCastOp(ir.IndexType.get(), step)
 
-
         with self.ctx, ir.InsertionPoint(self.bb), ir.Location.unknown():
             for_op = scf.ForOp(lb, ub, step, iter_args = [])
+
+        # Register iv to a symbol table.
+        sym = symbolTable.find(node.target.id)
+        if sym is None:
+            # The variable appears here firstly.
+            sym = Symbol(node.target.id, index, "variable", value=for_op.induction_variable)
+            symbolTable.append(sym)
+            print("// [Sym] New symbol added:", sym)
+            print("// [Sym] iv type:", index)
+        else:
+            # symbol is already defined.
+            assert lb_ty == sym.type
 
         oldbb = self.bb
         self.bb = for_op.body
@@ -693,12 +725,16 @@ class CodeGenLLVM(ast.NodeVisitor):
 
         sym = symbolTable.lookup(node.id)
 
-        tmpSym = symbolTable.genUniqueSymbol(sym.type)
-
-        # %tmp = load %name
-        with self.ctx, ir.InsertionPoint(self.bb), ir.Location.unknown():
-            # Store all arguments in memref<llTy>.
-            load_op = memref.LoadOp(sym.llstorage, [])
+        # If a node referes a storage, load it to %tmp.
+        # Otherwise, use a temporary value it self.
+        if hasattr(sym, 'llstorage'):
+            tmpSym = symbolTable.genUniqueSymbol(sym.type)
+            # %tmp = load %name
+            with self.ctx, ir.InsertionPoint(self.bb), ir.Location.unknown():
+                # Store all arguments in memref<llTy>.
+                load_op = memref.LoadOp(sym.llstorage, [])
+        else:
+            load_op = sym.value
 
         print("// [Leaf] inst = ", load_op)
         return load_op
