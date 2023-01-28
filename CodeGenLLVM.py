@@ -134,7 +134,7 @@ class CodeGenLLVM(ast.NodeVisitor):
         for arg in node.args.args:
             assert isinstance(arg.annotation, ast.Name)
 
-            ty = typer.isNameOfFirstClassType(arg.annotation.id)
+            ty = typer.findTypeFromAName(arg.annotation.id)
             if ty is None:
                 raise Exception("Unknown name of type:", arg.annotation.id)
 
@@ -201,7 +201,7 @@ class CodeGenLLVM(ast.NodeVisitor):
             assert isinstance(value, ir.Value)
             assert isinstance(arg.annotation, ast.Name)
 
-            ty = typer.isNameOfFirstClassType(arg.annotation.id)
+            ty = typer.findTypeFromAName(arg.annotation.id)
             llTy = toLLVMTy(ty)
 
             symbolTable.append(Symbol(arg.arg, ty, "variable", value=value))
@@ -217,7 +217,7 @@ class CodeGenLLVM(ast.NodeVisitor):
             assert isinstance(value, ir.Value)
             assert isinstance(arg.annotation, ast.Name)
 
-            ty = typer.isNameOfFirstClassType(arg.annotation.id)
+            ty = typer.findTypeFromAName(arg.annotation.id)
             bufSym = symbolTable.genUniqueSymbol(ty)
             llTy = toLLVMTy(ty)
 
@@ -604,7 +604,7 @@ class CodeGenLLVM(ast.NodeVisitor):
         '''
         print("// callfunc", node.args)
 
-        ty = typer.isNameOfFirstClassType(node.node.name)
+        ty = typer.findTypeFromAName(node.node.name)
         print("// callfuncafter: ty = ", ty)
 
         #

@@ -55,7 +55,7 @@ class TypeInference(ast.NodeVisitor):
         return False
 
 
-    def isNameOfFirstClassType(self, name):
+    def findTypeFromAName(self, name):
         if name in self.typeDic:
             return self.typeDic[name]
 
@@ -202,8 +202,9 @@ class TypeInference(ast.NodeVisitor):
         name = node.name
 
         # Firstly, name of type?
-        if name in self.typeDic:
-            return self.typeDic[name]
+        ty = self.findTypeFromAName(name)
+        if ty is not None:
+            return ty
 
         # Next, lookup symbol
         # return vec
@@ -215,9 +216,9 @@ class TypeInference(ast.NodeVisitor):
         name = node.id
 
         # Firstly, name of type?
-        if name in self.typeDic:
-            print("// => found type for ", name)
-            return self.typeDic[name]
+        ty = self.findTypeFromAName(name)
+        if ty is not None:
+            return ty
 
         # Next, lookup symbol from the symbol table.
         sym = self.symbolTable.find(name)
