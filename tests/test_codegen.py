@@ -18,8 +18,17 @@ class TestImport(unittest.TestCase):
         self.assertIn('module {\n}', f.getvalue())
         del codegen
 
-    def test_simple_function(self):
+    def test_void_function(self):
+        # void is not a name in python, so this should be failed
         mod = ast.parse("def test() -> void: return")
+        codegen = CodeGenLLVM()
+        with self.assertRaises(Exception):
+            codegen.visit(mod)
+        del codegen
+
+    def test_none_function(self):
+        # void is None in python type hinting
+        mod = ast.parse("def test() -> None: return")
         codegen = CodeGenLLVM()
         with redirect_stdout(io.StringIO()) as f:
             codegen.visit(mod)

@@ -28,7 +28,7 @@ class TypeInference(ast.NodeVisitor):
         self.typeDic = {
               'int'    : int
             , 'float'  : float
-            , 'void'   : void
+            , 'None'   : void
             , 'string' : str
             , 'list'   : list
             }
@@ -58,6 +58,9 @@ class TypeInference(ast.NodeVisitor):
     def findTypeFromAName(self, name):
         if name in self.typeDic:
             return self.typeDic[name]
+
+        if name == 'void':
+            raise Exception("'void' is not a name of python type, please use 'None' instead.", name)
 
         return None
 
