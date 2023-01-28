@@ -1,5 +1,8 @@
 .PHONY: t
 
+test:
+	python -m unittest discover tests
+
 all:
 	./py2mlir.py test.py
 
