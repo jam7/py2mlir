@@ -445,7 +445,6 @@ class CodeGenLLVM(ast.NodeVisitor):
         '''
 
     def visit_BinOp(self, node):
-
         lTy = typer.visit(node.left)
         rTy = typer.visit(node.right)
 
@@ -481,8 +480,27 @@ class CodeGenLLVM(ast.NodeVisitor):
                     inst = arith.DivFOp(lLLInst, rLLInst)
                 else:
                     raise Exception("TODO: div for type: ", lTy)
-
                 print("// [DIvOp] inst = ", inst)
+            elif isinstance(node.op, ast.FloorDiv):
+                raise Exception("TODO: floordiv for type: ", lTy)
+            elif isinstance(node.op, ast.Mod):
+                raise Exception("TODO: mod for type: ", lTy)
+            elif isinstance(node.op, ast.Pow):
+                raise Exception("TODO: pow for type: ", lTy)
+            elif isinstance(node.op, ast.LShift):
+                raise Exception("TODO: lshift for type: ", lTy)
+            elif isinstance(node.op, ast.RShift):
+                raise Exception("TODO: rshift for type: ", lTy)
+            elif isinstance(node.op, ast.BitOr):
+                raise Exception("TODO: bitor for type: ", lTy)
+            elif isinstance(node.op, ast.BitXor):
+                raise Exception("TODO: bitxor for type: ", lTy)
+            elif isinstance(node.op, ast.BitAnd):
+                raise Exception("TODO: bitand for type: ", lTy)
+            elif isinstance(node.op, ast.MatMult):
+                raise Exception("TODO: matmult for type: ", lTy)
+            else:
+                raise Exception("ERROR: unknown binop: ", ast.dump(node))
 
         return inst
 
