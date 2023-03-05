@@ -79,6 +79,10 @@ class CodeGenLLVM(ast.NodeVisitor):
         # Clear context too.
         ctx = ir.Context()
 
+    def generic_visit(self, node):
+        """Called if no explicit visitor function exists for a node."""
+        print("// generic_visit", ast.dump(node))
+
     def visit_Module(self, node):
 
         # emitExternalSymbols() should be called before self.visit(node.node)
@@ -263,7 +267,9 @@ class CodeGenLLVM(ast.NodeVisitor):
         # TODO: Support stack access to use local variables.  Need to learn
         #       memref.
         lhsNode = node.targets[0]
+        return self.perform_Assign(lhsNode, rTy, rLLInst)
 
+    def perform_Assign(self, lhsNode, rTy, rLLInst):
         lTy = None
         if isinstance(lhsNode, ast.Name):
 
@@ -295,11 +301,23 @@ class CodeGenLLVM(ast.NodeVisitor):
             store_op = memref.StoreOp(rLLInst, lSym.llstorage, [])
         print("//", store_op)
 
-        print("// [Asgn]", ast.dump(node))
-        print("// [Asgn] nodes = ", node.targets)
-        print("// [Asgn] expr  = ", node.value)
+        print("// [Asgn] target = ", lhsNode)
+        print("// [Asgn] rhs = ", rLLInst)
 
         # No return
+
+    def visit_AugAssign(self, node):
+        assert isinstance(node.target, ast.Name)
+
+        # Calculate target op value
+        lTy = typer.visit(node.target)
+        rTy = typer.visit(node.value)
+        lLLInst = self.visit(node.target)
+        rLLInst = self.visit(node.value)
+        rLLInst = self.perform_BinOp(node.op, lTy, lLLInst, rTy, rLLInst)
+
+        # Assign calculated value
+        return self.perform_Assign(node.target, rTy, rLLInst)
 
     '''
     def visitIf(self, node):
@@ -457,12 +475,14 @@ class CodeGenLLVM(ast.NodeVisitor):
         return inst
 
     def visit_BinOp(self, node):
-        ty = typer.visit(node)
         lTy = typer.visit(node.left)
         rTy = typer.visit(node.right)
-
         lLLInst = self.visit(node.left)
         rLLInst = self.visit(node.right)
+        return self.perform_BinOp(node.op, lTy, lLLInst, rTy, rLLInst)
+
+    def perform_BinOp(self, op, lTy, lLLInst, rTy, rLLInst):
+        ty = typer.mergeType(lTy, rTy)
 
         if ty == float and rTy == int:
             rTy = ty
@@ -491,50 +511,50 @@ class CodeGenLLVM(ast.NodeVisitor):
         tmpSym = symbolTable.genUniqueSymbol(lTy)
 
         with self.ctx, ir.InsertionPoint(self.bb), ir.Location.unknown():
-            if isinstance(node.op, ast.Add):
+            if isinstance(op, ast.Add):
                 if typer.isFloatType(lTy):
                     inst = arith.AddFOp(lLLInst, rLLInst)
                 else:
                     inst = arith.AddIOp(lLLInst, rLLInst)
                 print("// [AddOp] inst = ", inst)
-            elif isinstance(node.op, ast.Sub):
+            elif isinstance(op, ast.Sub):
                 if typer.isFloatType(lTy):
                     inst = arith.SubFOp(lLLInst, rLLInst)
                 else:
                     inst = arith.SubIOp(lLLInst, rLLInst)
                 print("// [SubOp] inst = ", inst)
-            elif isinstance(node.op, ast.Mul):
+            elif isinstance(op, ast.Mult):
                 if typer.isFloatType(lTy):
                     inst = arith.MulFOp(lLLInst, rLLInst)
                 else:
                     inst = arith.MulIOp(lLLInst, rLLInst)
                 print("// [MulOp] inst = ", inst)
-            elif isinstance(node.op, ast.Div):
+            elif isinstance(op, ast.Div):
                 if typer.isFloatType(lTy):
                     inst = arith.DivFOp(lLLInst, rLLInst)
                 else:
                     raise Exception("TODO: div for type: ", lTy)
                 print("// [DIvOp] inst = ", inst)
-            elif isinstance(node.op, ast.FloorDiv):
+            elif isinstance(op, ast.FloorDiv):
                 raise Exception("TODO: floordiv for type: ", lTy)
-            elif isinstance(node.op, ast.Mod):
+            elif isinstance(op, ast.Mod):
                 raise Exception("TODO: mod for type: ", lTy)
-            elif isinstance(node.op, ast.Pow):
+            elif isinstance(op, ast.Pow):
                 raise Exception("TODO: pow for type: ", lTy)
-            elif isinstance(node.op, ast.LShift):
+            elif isinstance(op, ast.LShift):
                 raise Exception("TODO: lshift for type: ", lTy)
-            elif isinstance(node.op, ast.RShift):
+            elif isinstance(op, ast.RShift):
                 raise Exception("TODO: rshift for type: ", lTy)
-            elif isinstance(node.op, ast.BitOr):
+            elif isinstance(op, ast.BitOr):
                 raise Exception("TODO: bitor for type: ", lTy)
-            elif isinstance(node.op, ast.BitXor):
+            elif isinstance(op, ast.BitXor):
                 raise Exception("TODO: bitxor for type: ", lTy)
-            elif isinstance(node.op, ast.BitAnd):
+            elif isinstance(op, ast.BitAnd):
                 raise Exception("TODO: bitand for type: ", lTy)
-            elif isinstance(node.op, ast.MatMult):
+            elif isinstance(op, ast.MatMult):
                 raise Exception("TODO: matmult for type: ", lTy)
             else:
-                raise Exception("ERROR: unknown binop: ", ast.dump(node))
+                raise Exception("ERROR: unknown binop: ", op)
 
         return inst
 

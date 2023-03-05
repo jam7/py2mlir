@@ -189,25 +189,30 @@ class TypeInference(ast.NodeVisitor):
 
         return self.visit(node.operand)
 
+    def mergeType(self, left, right):
+        if left == float and right == int:
+            return float
+        elif left == int and right == float:
+            return float
+        elif left == int and right == index:
+            return int
+        elif left == index and right == int:
+            return int
+        elif left == float and right == index:
+            return float
+        elif left == index and right == float:
+            return float
+        elif left != right:
+            raise Exception("Different types are used {} and {}".format(left, right))
+            return None
+        return left
+
     def visit_BinOp(self, node):
-    
         left  = self.visit(node.left)
         right = self.visit(node.right)
+        ty = self.mergeType(left, right)
 
-        if left == float and right == int:
-            right = float
-        elif left == int and right == float:
-            left = float
-        if left == int and right == index:
-            right = int
-        elif left == index and right == int:
-            left = int
-        elif left == float and right == index:
-            right = float
-        elif left == index and right == float:
-            left = float
-
-        if left != right:
+        if ty is None:
             print("// [type inference] Type mismatch found at line %d: left = %s, right = %s" % (node.lineno, left, right))
             print("//                 node = %s" % ast.dump(node))
             return None
