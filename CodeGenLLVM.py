@@ -18,9 +18,10 @@ symbolTable    = SymbolTable()
 typer          = TypeInference(symbolTable)
 
 ctx = ir.Context()
-with ctx:
+with ctx, ir.Location.unknown():
     i32 = ir.IntegerType.get_signless(32)
     f32 = ir.F32Type.get()
+    i32ptr = ir.MemRefType.get([0], i32)
     '''
     llFVec4Type    = ll.VectorType(f32, 4)
     llFVec4PtrType = ll.PointerType(llFVec4Type)
@@ -36,7 +37,7 @@ def toLLVMTy(ty):
           float : f32
         , int   : i32
         , void  : None
-        # , list  : list
+        , list  : i32ptr
         # , vec   : llFVec4Type
         # , void  : llVoidType
         # str   : TODO
@@ -806,6 +807,23 @@ class CodeGenLLVM(ast.NodeVisitor):
     def visit_Constant(self, node):
         ty = typer.visit(node)
         return self.mkLLConstInst(ty, node.value)
+
+    def visit_Subscript(self, node):
+        ty = typer.visit(node.value)
+        val = self.visit(node.value)
+
+        if isinstance(node.slice.value, ast.Tuple):
+            raise Exception("multi dimentional subscription is not supported yet")
+        else:
+            sTy = typer.visit(node.slice.value)
+            sVal = self.visit(node.slice.value)
+
+        with self.ctx, ir.InsertionPoint(self.bb), ir.Location.unknown():
+            # load_op = memref.LoadOp(sym.llstorage, [])
+            sVal = arith.IndexCastOp(ir.IndexType.get(), sVal)
+            load_op = memref.LoadOp(val, [sVal])
+
+        return load_op
 
     def emitCommonHeader(self):
 

@@ -38,6 +38,7 @@ class TypeInference(ast.NodeVisitor):
             , 'string' : str
             , 'list'   : list
             , 'index'  : index
+            , 'List'   : list
             }
 
         self.typeDic.update(GetMUDATypeDic())    # register MUDA type
@@ -107,6 +108,10 @@ class TypeInference(ast.NodeVisitor):
 
         return method(node) 
     '''
+
+    def generic_visit(self, node):
+        """Called if no explicit visitor function exists for a node."""
+        raise Exception("// typer generic_visit", ast.dump(node))
 
     def visit_Module(self, node):
 
@@ -240,7 +245,6 @@ class TypeInference(ast.NodeVisitor):
     '''
     
     def visit_Name(self, node):
-
         name = node.id
 
         # Firstly, name of type?
@@ -256,9 +260,7 @@ class TypeInference(ast.NodeVisitor):
         print("// => not found. name=", name)
         return None
 
-
     def visit_Constant(self, node):
-
         value = node.value
 
         if value == None:
@@ -275,3 +277,21 @@ class TypeInference(ast.NodeVisitor):
 
         else:
             raise Exception("Unknown type of value:", value)
+
+    def visit_List(self, node):
+        print("// visit_List",ast.dump(node))
+        all_ty = None
+        for val in node.elts:
+            ty = self.visit(val)
+            if all_ty is None:
+                all_ty = ty
+            elif all_ty != ty:
+                raise Exception("Not support different types", ast.dump(node))
+
+        return list
+
+    def visit_Subscript(self, node):
+        value = node.value
+        ty = self.visit(node.value)
+
+        return int
