@@ -1,23 +1,22 @@
 #!/usr/bin/env python
 
 import os, sys
+import argparse
 
 from CodeGenLLVM import *
 
-def usage():
-    print("Usage: py2mlir.py <input.py>")
-    sys.exit(1)
-
 def main():
 
-    if len(sys.argv) < 2:
-        usage()
+    parser = argparse.ArgumentParser(description='Python to MLIR translator')
+    parser.add_argument('filename')
+    parser.add_argument('--ssa', action='store_true')
+    args = parser.parse_args()
 
-    r = open(sys.argv[1], 'r')
+    r = open(args.filename, 'r')
     mod = ast.parse(r.read())
     # print(ast.dump(mod))
 
-    codegen = CodeGenLLVM()
+    codegen = CodeGenLLVM(args.ssa)
     codegen.visit(mod)
 
 if __name__ == '__main__':

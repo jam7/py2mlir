@@ -53,7 +53,7 @@ class CodeGenLLVM(ast.NodeVisitor):
     LLVM CodeGen class
     """
 
-    def __init__(self):
+    def __init__(self, ssaFlag = False):
 
         self.body             = ""
         self.globalscope      = ""
@@ -70,6 +70,8 @@ class CodeGenLLVM(ast.NodeVisitor):
 
         self.currFuncRetType  = None
         self.prevFuncRetNode  = None    # for reporiting err
+
+        self.ssa = ssaFlag
 
         self.externals        = {}
 
@@ -227,13 +229,18 @@ class CodeGenLLVM(ast.NodeVisitor):
             bufSym = symbolTable.genUniqueSymbol(ty)
             llTy = toLLVMTy(ty)
 
-            with self.ctx, ir.InsertionPoint(self.bb), ir.Location.unknown():
-                # Store all arguments in memref<llTy>.
-                memref_ty = ir.MemRefType.get([], llTy)
-                alloca_op = memref.AllocaOp(memref_ty, [], [])
-                store_op = memref.StoreOp(value, alloca_op, [])
+            if self.ssa:
+                # Use arguments as is.
+                symbolTable.append(Symbol(arg.arg, ty, "variable", value=value))
+            else:
+                # Create local variables and store arguments to them.
+                with self.ctx, ir.InsertionPoint(self.bb), ir.Location.unknown():
+                    # Store all arguments in memref<llTy>.
+                    memref_ty = ir.MemRefType.get([], llTy)
+                    alloca_op = memref.AllocaOp(memref_ty, [], [])
+                    store_op = memref.StoreOp(value, alloca_op, [])
 
-            symbolTable.append(Symbol(arg.arg, ty, "variable", llstorage=alloca_op))
+                symbolTable.append(Symbol(arg.arg, ty, "variable", llstorage=alloca_op))
 
         for stmt in node.body:
             if isinstance(stmt, ast.AST):
@@ -271,6 +278,14 @@ class CodeGenLLVM(ast.NodeVisitor):
         return self.perform_Assign(lhsNode, rTy, rLLInst)
 
     def perform_Assign(self, lhsNode, rTy, rLLInst):
+        if self.ssa:
+            sym = Symbol(lhsNode.id, rTy, "variable", value=rLLInst)
+            symbolTable.append(sym)
+            return None         # No return
+        else:
+            return self.perform_Assign_Stack(lhsNode, rTy, rLLInst)
+
+    def perform_Assign_Stack(self, lhsNode, rTy, rLLInst):
         lTy = None
         if isinstance(lhsNode, ast.Name):
 
@@ -305,7 +320,7 @@ class CodeGenLLVM(ast.NodeVisitor):
         print("// [Asgn] target = ", lhsNode)
         print("// [Asgn] rhs = ", rLLInst)
 
-        # No return
+        return None             # No return
 
     def visit_AugAssign(self, node):
         assert isinstance(node.target, ast.Name)
